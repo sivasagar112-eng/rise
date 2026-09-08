@@ -1,0 +1,110 @@
+@import url('https://fonts.cdnfonts.com/css/gilroy-bold');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Gilroy';
+  src: local('Gilroy-Medium'), local('Gilroy'), url('https://fonts.cdnfonts.com/s/16219/Gilroy-Medium.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: local('Gilroy-SemiBold'), url('https://fonts.cdnfonts.com/s/16219/Gilroy-SemiBold.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: local('Gilroy-Bold'), url('https://fonts.cdnfonts.com/s/16219/Gilroy-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: local('Gilroy-ExtraBold'), url('https://fonts.cdnfonts.com/s/16219/Gilroy-ExtraBold.woff') format('woff');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --color-bg: #F2F2F7;
+  --color-card: #FFFFFF;
+  --color-card-border: rgba(0, 0, 0, 0.06);
+  --color-border: #E5E5EA;
+  --color-muted: #8E8E93;
+  --color-text: #000000;
+  --color-subtext: #666666;
+  --color-inverse: #000000;
+  --toggle-off: #E5E5EA;
+}
+
+.dark {
+  --color-bg: #000000;
+  --color-card: #1C1C1E;
+  --color-card-border: rgba(255, 255, 255, 0.05);
+  --color-border: #2C2C2E;
+  --color-muted: #636366;
+  --color-text: #FFFFFF;
+  --color-subtext: #8E8E93;
+  --color-inverse: #FFFFFF;
+  --toggle-off: #3A3A3C;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'Gilroy', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: 'Gilroy', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  transition: background-color 200ms ease, color 200ms ease;
+  overflow-x: hidden;
+}
+
+/* Make all buttons slightly bolder by default */
+button {
+  font-weight: 600;
+  font-family: 'Gilroy', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Make all input fields medium weight */
+input, textarea {
+  font-weight: 500;
+  font-family: 'Gilroy', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Minimalist Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}

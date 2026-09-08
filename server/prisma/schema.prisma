@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  alarms       Alarm[]
+  wakeLogs     WakeLog[]
+}
+
+model Alarm {
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  time                String    // "07:00" 24-hr format
+  label               String    @default("Alarm")
+  daysOfWeek          String    // JSON array "[1,2,3,4,5]" (0 = Sun, 1 = Mon, ..., 6 = Sat)
+  dismissalType       String    @default("PUSHUP_MATH") // PUSHUP_MATH, BRIGHTNESS, FACE_AWAY, OBJECT_MATCH, MATH
+  pushupTarget        Int       @default(5)
+  referenceDescriptor String?   // Lightweight client-extracted feature hash (no images stored)
+  rampDuration        Int       @default(30) // Seconds over which volume ramps from min to max
+  preAlarmEnabled     Boolean   @default(false) // 5-minute silent haptic vibration
+  isEnabled           Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  wakeLogs            WakeLog[]
+}
+
+model WakeLog {
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alarmId             String?
+  alarm               Alarm?    @relation(fields: [alarmId], references: [id], onDelete: SetNull)
+  scheduledTime       String    // e.g. "2026-09-03T07:00:00"
+  dismissedAt         DateTime  @default(now())
+  responseTimeSeconds Int       // Time between alarm start and verified dismissal
+  dismissalType       String    // Type used to dismiss
+  success             Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+}
