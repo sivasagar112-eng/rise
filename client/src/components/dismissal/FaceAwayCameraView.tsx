@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { EyeOff, Check, FlipHorizontal, Loader2, AlertTriangle } from 'lucide-react';
 import { synth } from '../../services/WebAudioSynth';
 
@@ -15,6 +15,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
   const sustainedMsRef = useRef(0);
   const lastTsRef = useRef(performance.now());
   const initialFaceDetectedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
@@ -26,9 +27,9 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
   const [showEmergencyDismiss, setShowEmergencyDismiss] = useState(false);
 
   // Toggle camera front/rear
-  const handleToggleCamera = () => {
+  const handleToggleCamera = useCallback(() => {
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-  };
+  }, []);
 
   // Emergency fallback button if user's hardware is struggling
   useEffect(() => {
@@ -39,19 +40,32 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
   }, []);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     sustainedMsRef.current = 0;
     initialFaceDetectedRef.current = false;
+    lastTsRef.current = performance.now();
     setIsLoading(true);
     setCameraError(null);
     setStatusText('Opening camera feed...');
 
+    // Force-hide loading overlay after 3 seconds even if video.readyState hasn't reached 2
+    // This prevents the "Opening Camera..." spinner from being stuck forever on Android WebView
+    const forceLoadingTimeout = setTimeout(() => {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }, 3000);
+
     const tick = () => {
-      if (!mounted || completedRef.current) return;
+      if (!mountedRef.current || completedRef.current) return;
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (video && canvas && video.readyState >= 2) {
+      // Process frames when video has data. On Android WebView, readyState may report
+      // odd values, so also check videoWidth > 0 as an alternative readiness signal.
+      const videoReady = video && (video.readyState >= 2 || video.videoWidth > 0);
+
+      if (video && canvas && videoReady) {
         setIsLoading(false);
         const W = 160;
         const H = 120;
@@ -149,31 +163,63 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
             audio: false,
           });
         } catch {
+          // Fallback: request any available camera
           stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false,
           });
         }
 
-        if (!mounted) {
+        if (!mountedRef.current) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
 
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          const playVideo = () => {
-            videoRef.current?.play().catch((e) => console.warn('Play error:', e));
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+
+          // Ensure playsinline is set as attribute for Android WebView compatibility
+          video.setAttribute('playsinline', 'true');
+          video.setAttribute('webkit-playsinline', 'true');
+          video.muted = true;
+
+          // Aggressive play strategy: try play immediately, on metadata, and on data load
+          const tryPlay = () => {
+            if (!video) return;
+            const playPromise = video.play();
+            if (playPromise) {
+              playPromise.catch((e) => {
+                console.warn('FaceAway play attempt:', e);
+                // Retry after a short delay
+                setTimeout(() => {
+                  video.play().catch(() => {});
+                }, 200);
+              });
+            }
           };
-          videoRef.current.onloadedmetadata = playVideo;
-          videoRef.current.onloadeddata = playVideo;
-          playVideo();
+
+          video.onloadedmetadata = tryPlay;
+          video.onloadeddata = () => {
+            tryPlay();
+            // Once data is loaded, definitely hide loading
+            if (mountedRef.current) setIsLoading(false);
+          };
+          video.oncanplay = () => {
+            tryPlay();
+            if (mountedRef.current) setIsLoading(false);
+          };
+
+          // Also try playing immediately
+          tryPlay();
         }
+
+        // Start processing loop immediately — it will skip frames until video is ready
         rafRef.current = requestAnimationFrame(tick);
       } catch (err: any) {
         console.error('Camera access completely denied in FaceAway:', err);
-        if (mounted) {
+        if (mountedRef.current) {
           setIsLoading(false);
           setCameraError(err?.message || 'Front camera access was blocked.');
         }
@@ -183,7 +229,8 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
     initCamera();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      clearTimeout(forceLoadingTimeout);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -211,7 +258,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
 
       {/* Viewfinder */}
       <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-4 shadow-lg">
-        {isLoading && (
+        {isLoading && !cameraError && (
           <div className="absolute inset-0 bg-neutral-900/90 z-10 flex flex-col items-center justify-center space-y-2">
             <Loader2 size={32} className="text-purple-400 animate-spin" />
             <span className="text-xs font-semibold text-white">Opening Camera...</span>
@@ -235,7 +282,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
             playsInline
             muted
             autoPlay
-            className={`w-full h-full object-cover opacity-85 ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+            className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
           />
         )}
         <canvas ref={canvasRef} className="hidden" />

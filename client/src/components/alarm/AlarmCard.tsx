@@ -200,7 +200,7 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
             e.stopPropagation();
             setShowDeleteModal(false);
           }}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-fade-in select-none"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in select-none"
         >
           <div
             onClick={(e) => e.stopPropagation()}
