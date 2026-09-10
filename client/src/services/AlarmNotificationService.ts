@@ -1,7 +1,29 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Alarm } from '../types/alarm';
 
 const CHANNEL_ID = 'rise_alarm_channel_v1';
+
+// Register the custom native plugin
+interface AlarmSchedulerPluginInterface {
+  scheduleExact(options: {
+    alarmId: string;
+    triggerMs: number;
+    alarmTime: string;
+    alarmLabel: string;
+    dismissalType: string;
+    pushupTarget: number;
+    rampDuration: number;
+  }): Promise<{ success: boolean; alarmId: string; triggerMs: number }>;
+
+  cancelAlarm(options: { alarmId: string }): Promise<{ success: boolean }>;
+
+  cancelAll(): Promise<{ success: boolean }>;
+
+  stopRinging(): Promise<{ success: boolean }>;
+}
+
+const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
 
 // Convert an alarm ID to a stable positive 32-bit integer for Android notification IDs
 function getNotificationId(alarmId: string): number {
@@ -76,6 +98,17 @@ export class AlarmNotificationService {
         }
       });
 
+      // 6. Listen for native alarm fired event (from AlarmService via MainActivity)
+      if (typeof window !== 'undefined') {
+        window.addEventListener('nativeAlarmFired', ((event: CustomEvent) => {
+          const alarmId = event.detail?.alarmId;
+          if (alarmId) {
+            console.log('[AlarmNotificationService] Native alarm fired for:', alarmId);
+            onAlarmTrigger(alarmId);
+          }
+        }) as EventListener);
+      }
+
       this.isInitialized = true;
     } catch (err) {
       console.warn('[AlarmNotificationService] Init error:', err);
@@ -125,6 +158,15 @@ export class AlarmNotificationService {
       await LocalNotifications.cancel({
         notifications: [{ id: 888888 }],
       });
+
+      // Also stop the native foreground AlarmService
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await AlarmSchedulerNative.stopRinging();
+        } catch (e) {
+          console.warn('[AlarmNotificationService] Failed to stop native alarm service:', e);
+        }
+      }
     } catch (e) {
       console.warn('[AlarmNotificationService] Failed to cancel notification:', e);
     }
@@ -158,13 +200,24 @@ export class AlarmNotificationService {
   // Sync all enabled alarms with native Android exact alarm scheduler
   public static async syncAlarms(alarms: Alarm[]): Promise<void> {
     try {
-      // 1. Cancel previously scheduled notifications
+      const isNative = Capacitor.isNativePlatform();
+
+      // 1. Cancel all previously scheduled notifications
       const pending = await LocalNotifications.getPending();
       if (pending.notifications.length > 0) {
         await LocalNotifications.cancel({ notifications: pending.notifications });
       }
 
-      // 2. Schedule upcoming notifications for all enabled alarms
+      // Cancel all native alarms too
+      if (isNative) {
+        try {
+          await AlarmSchedulerNative.cancelAll();
+        } catch (e) {
+          console.warn('[AlarmNotificationService] Failed to cancel native alarms:', e);
+        }
+      }
+
+      // 2. Schedule upcoming alarms
       const notificationsToSchedule = [];
 
       for (const alarm of alarms) {
@@ -173,13 +226,32 @@ export class AlarmNotificationService {
         const nextDate = this.getNextAlarmDate(alarm.time, alarm.daysOfWeek);
         const notifId = getNotificationId(alarm.id);
 
+        // Schedule via native AlarmManager.setAlarmClock() (most reliable)
+        if (isNative) {
+          try {
+            await AlarmSchedulerNative.scheduleExact({
+              alarmId: alarm.id,
+              triggerMs: nextDate.getTime(),
+              alarmTime: alarm.time,
+              alarmLabel: alarm.label || 'Rise Alarm',
+              dismissalType: alarm.dismissalType,
+              pushupTarget: alarm.pushupTarget || 5,
+              rampDuration: alarm.rampDuration || 30,
+            });
+            console.log(`[AlarmNotificationService] Native alarm scheduled: ${alarm.id} at ${alarm.time}`);
+          } catch (e) {
+            console.warn(`[AlarmNotificationService] Native schedule failed for ${alarm.id}:`, e);
+          }
+        }
+
+        // Also schedule a Capacitor LocalNotification as backup (for web & as fallback)
         notificationsToSchedule.push({
           id: notifId,
           title: `⏰ Alarm — ${alarm.time}`,
           body: `Time to wake up! Complete your ${alarm.dismissalType.replace('_', ' ')} task now.`,
           schedule: {
             at: nextDate,
-            allowWhileIdle: true, // Key: Uses Android AlarmManager.setExactAndAllowWhileIdle()
+            allowWhileIdle: true,
           },
           channelId: CHANNEL_ID,
           extra: {

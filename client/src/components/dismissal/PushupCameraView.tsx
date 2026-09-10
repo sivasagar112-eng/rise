@@ -469,6 +469,4 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       </div>
     </div>
   );
-};iv>
-  );
 };

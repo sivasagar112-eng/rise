@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
 import { X, Trash2, Camera, Activity, SunMedium, EyeOff, Calculator, Check } from 'lucide-react';
 import { useCameraVision } from '../../hooks/useCameraVision';
+import { ScrollPicker } from './ScrollPicker';
 
 interface AlarmEditorModalProps {
   alarm?: Alarm | null;
@@ -159,39 +160,25 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
             </p>
             <div className="inline-flex items-center justify-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/10">
               {/* Hour */}
-              <div className="flex flex-col items-center">
-                <input
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={hour12}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val)) setHour12(Math.max(1, Math.min(12, val)));
-                    else setHour12(12);
-                  }}
-                  className="w-20 text-5xl font-extrabold text-center bg-transparent text-white focus:outline-none font-tabular"
+              <div className="flex flex-col items-center w-20">
+                <ScrollPicker
+                  items={Array.from({ length: 12 }, (_, i) => String(i + 1))}
+                  selectedIndex={hour12 - 1}
+                  onChange={(index) => setHour12(index + 1)}
                 />
-                <span className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-wider">Hour</span>
+                <span className="text-[10px] text-neutral-500 mt-2 uppercase font-bold tracking-wider">Hour</span>
               </div>
 
-              <span className="text-5xl font-light text-neutral-600 pb-4">:</span>
+              <span className="text-3xl font-light text-neutral-600 pb-6">:</span>
 
               {/* Minute */}
-              <div className="flex flex-col items-center">
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={minute}
-                  onChange={(e) => { if (e.target.value.length <= 2) setMinute(e.target.value); }}
-                  onBlur={() => {
-                    const val = Math.max(0, Math.min(59, parseInt(minute, 10) || 0));
-                    setMinute(String(val).padStart(2, '0'));
-                  }}
-                  className="w-20 text-5xl font-extrabold text-center bg-transparent text-white focus:outline-none font-tabular"
+              <div className="flex flex-col items-center w-20">
+                <ScrollPicker
+                  items={Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))}
+                  selectedIndex={parseInt(minute, 10) || 0}
+                  onChange={(index) => setMinute(String(index).padStart(2, '0'))}
                 />
-                <span className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-wider">Min</span>
+                <span className="text-[10px] text-neutral-500 mt-2 uppercase font-bold tracking-wider">Min</span>
               </div>
 
               {/* AM / PM */}
