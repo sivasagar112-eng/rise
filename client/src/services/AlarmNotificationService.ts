@@ -21,6 +21,13 @@ interface AlarmSchedulerPluginInterface {
   cancelAll(): Promise<{ success: boolean }>;
 
   stopRinging(): Promise<{ success: boolean }>;
+
+  startRinging(options: {
+    alarmId: string;
+    alarmTime: string;
+    alarmLabel: string;
+    rampDuration: number;
+  }): Promise<{ success: boolean }>;
 }
 
 const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
@@ -55,8 +62,7 @@ export class AlarmNotificationService {
         description: 'Urgent alarm wake-up notifications with sound and heads-up banner',
         importance: 5, // MAX importance - pops up as banner even in other apps
         visibility: 1, // PUBLIC - visible on lock screen
-        sound: 'alarm.wav',
-        vibration: true,
+        vibration: false,
         lights: true,
         lightColor: '#3B82F6',
       });
@@ -153,6 +159,22 @@ export class AlarmNotificationService {
       });
     } catch (e) {
       console.warn('[AlarmNotificationService] Failed to show ringing notification:', e);
+    }
+  }
+
+  // Start native foreground AlarmService to play the single smooth ringtone on Android
+  public static async startNativeRinging(alarm: Alarm): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.startRinging({
+          alarmId: alarm.id,
+          alarmTime: alarm.time,
+          alarmLabel: alarm.label || 'Rise Alarm',
+          rampDuration: alarm.rampDuration || 30,
+        });
+      } catch (e) {
+        console.warn('[AlarmNotificationService] Failed to start native alarm service:', e);
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Alarm } from '../types/alarm';
 import { synth } from '../services/WebAudioSynth';
 import { AlarmNotificationService } from '../services/AlarmNotificationService';
@@ -30,7 +31,20 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
     setActiveRingingAlarm(alarm);
     const now = performance.now();
     setAlarmTriggerTimestamp(now);
-    synth.startAlarm(alarm.rampDuration);
+
+    // FIX 2: Ensure ONLY ONE audio source is ever active!
+    // On native Android, AlarmService is the sole background/foreground audio player.
+    // On web, WebAudioSynth is the sole audio player.
+    if (Capacitor.isNativePlatform()) {
+      console.log('[useAlarmScheduler] Native Android: Starting single AlarmService audio instance');
+      AlarmNotificationService.startNativeRinging(alarm);
+      // Ensure WebAudioSynth is stopped on native to prevent duplicate audio clash
+      synth.stopAlarm();
+    } else {
+      console.log('[useAlarmScheduler] Web environment: Starting single WebAudioSynth audio instance');
+      synth.startAlarm(alarm.rampDuration);
+    }
+
     onAlarmTriggerRef.current(alarm);
 
     // Trigger high-priority heads-up banner notification on Android & iOS

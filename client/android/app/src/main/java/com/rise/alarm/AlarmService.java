@@ -127,26 +127,48 @@ public class AlarmService extends Service {
 
     private void playAlarmSound() {
         try {
-            Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (alarmUri == null) {
-                alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-            }
-            if (alarmUri == null) {
-                alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            // 1. Release any previously existing audio session before starting a new one
+            if (mediaPlayer != null) {
+                try {
+                    if (mediaPlayer.isPlaying()) {
+                        mediaPlayer.stop();
+                    }
+                    mediaPlayer.release();
+                } catch (Exception e) {
+                    Log.w(TAG, "Previous MediaPlayer cleanup error", e);
+                }
+                mediaPlayer = null;
             }
 
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(this, alarmUri);
-            mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build());
+            // 2. Play our smooth, non-jarring custom morning tone (rise_alarm.wav)
+            int resId = getResources().getIdentifier("rise_alarm", "raw", getPackageName());
+            if (resId != 0) {
+                mediaPlayer = MediaPlayer.create(this, resId);
+                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build());
+            } else {
+                // Fallback to gentle notification tone instead of harsh alarm
+                Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                if (soundUri == null) {
+                    soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                }
+                mediaPlayer = new MediaPlayer();
+                mediaPlayer.setDataSource(this, soundUri);
+                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build());
+                mediaPlayer.prepare();
+            }
+
             mediaPlayer.setLooping(true);
+            currentVolume = 0.05f;
             mediaPlayer.setVolume(currentVolume, currentVolume);
-            mediaPlayer.prepare();
             mediaPlayer.start();
 
-            // Gradually ramp up volume
+            // Gradually ramp up volume smoothly
             volumeHandler = new Handler(Looper.getMainLooper());
             final long startTime = System.currentTimeMillis();
             volumeRunnable = new Runnable() {
@@ -166,7 +188,7 @@ public class AlarmService extends Service {
             };
             volumeHandler.postDelayed(volumeRunnable, 200);
 
-            Log.d(TAG, "Alarm sound started with volume ramp over " + rampDurationMs + "ms");
+            Log.d(TAG, "Smooth alarm tone started with volume ramp over " + rampDurationMs + "ms");
         } catch (Exception e) {
             Log.e(TAG, "Failed to play alarm sound", e);
         }
@@ -202,15 +224,10 @@ public class AlarmService extends Service {
                 NotificationManager.IMPORTANCE_HIGH
             );
             channel.setDescription("Active alarm notification");
-            channel.enableVibration(true);
+            channel.enableVibration(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             channel.setBypassDnd(true);
-
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build();
-            channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audioAttributes);
+            channel.setSound(null, null); // Sound handled by dedicated MediaPlayer
 
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {

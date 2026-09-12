@@ -32,6 +32,12 @@ export interface PoseResult {
   hasHip: boolean;
   hasKnee: boolean;
   hasAnkle: boolean;
+  // Three key landmark groups for simplified pushup tracking:
+  shoulder: Keypoint | null; // mid-shoulder point
+  chest: Keypoint | null;    // mid-torso point between shoulders and hips
+  hip: Keypoint | null;      // mid-hip point
+  isTracking: boolean;       // whether shoulder and hip are visible
+
   midShoulder: Keypoint | null;
   midHip: Keypoint | null;
   midWrist: Keypoint | null;
@@ -259,8 +265,34 @@ export class PoseDetectionEngine {
       const validScores = coreKps.map((k) => k.score ?? 0).filter((s) => s > 0);
       const confidence = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
 
+      // Three key pushup landmark groups: Shoulder, Chest, and Hip
+      const shoulder = midShoulder;
+      const hip = midHip;
+      let chest: Keypoint | null = null;
+      if (shoulder && hip) {
+        chest = {
+          x: shoulder.x * 0.6 + hip.x * 0.4,
+          y: shoulder.y * 0.6 + hip.y * 0.4,
+          score: Math.min(shoulder.score ?? 0, hip.score ?? 0),
+          name: 'chest',
+        };
+      } else if (shoulder) {
+        chest = {
+          x: shoulder.x,
+          y: shoulder.y + shoulderWidth * 0.4,
+          score: shoulder.score,
+          name: 'chest',
+        };
+      }
+
+      const isTracking = hasShoulder && hasHip;
+
       return {
         keypoints,
+        shoulder,
+        chest,
+        hip,
+        isTracking,
         leftElbowAngle,
         rightElbowAngle,
         avgElbowAngle,
@@ -336,18 +368,64 @@ export class PoseDetectionEngine {
       }
     }
 
-    // Draw keypoints
+    // Draw standard skeleton keypoints
     for (let idx = 5; idx < keypoints.length; idx++) {
       const kp = keypoints[idx];
       if ((kp.score ?? 0) > 0.25) {
         ctx.fillStyle = isUpright ? '#ef4444' : (kp.score ?? 0) > 0.5 ? '#22c55e' : '#eab308';
         ctx.beginPath();
-        ctx.arc(kp.x * scaleX, kp.y * scaleY, 5, 0, 2 * Math.PI);
+        ctx.arc(kp.x * scaleX, kp.y * scaleY, 4, 0, 2 * Math.PI);
         ctx.fill();
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.stroke();
       }
+    }
+
+    // Specially highlight the 3 tracked points: Shoulder, Chest, Hip
+    const leftShoulder = keypoints[5];
+    const rightShoulder = keypoints[6];
+    const leftHip = keypoints[11];
+    const rightHip = keypoints[12];
+
+    const hasShoulder = (leftShoulder.score ?? 0) > 0.25 || (rightShoulder.score ?? 0) > 0.25;
+    const hasHip = (leftHip.score ?? 0) > 0.25 || (rightHip.score ?? 0) > 0.25;
+
+    if (hasShoulder && hasHip) {
+      const midSX = (((leftShoulder.score ?? 0) > 0.25 ? leftShoulder.x : rightShoulder.x) + ((rightShoulder.score ?? 0) > 0.25 ? rightShoulder.x : leftShoulder.x)) / 2;
+      const midSY = (((leftShoulder.score ?? 0) > 0.25 ? leftShoulder.y : rightShoulder.y) + ((rightShoulder.score ?? 0) > 0.25 ? rightShoulder.y : leftShoulder.y)) / 2;
+
+      const midHX = (((leftHip.score ?? 0) > 0.25 ? leftHip.x : rightHip.x) + ((rightHip.score ?? 0) > 0.25 ? rightHip.x : leftHip.x)) / 2;
+      const midHY = (((leftHip.score ?? 0) > 0.25 ? leftHip.y : rightHip.y) + ((rightHip.score ?? 0) > 0.25 ? rightHip.y : leftHip.y)) / 2;
+
+      const chestX = midSX * 0.6 + midHX * 0.4;
+      const chestY = midSY * 0.6 + midHY * 0.4;
+
+      // Draw central spine tracking line
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(midSX * scaleX, midSY * scaleY);
+      ctx.lineTo(midHX * scaleX, midHY * scaleY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw glowing markers for Shoulder, Chest, and Hip
+      const drawMarker = (x: number, y: number, label: string, color: string) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x * scaleX, y * scaleY, 7, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(label, x * scaleX + 10, y * scaleY + 4);
+      };
+
+      drawMarker(midSX, midSY, 'SHOULDER', '#38bdf8');
+      drawMarker(chestX, chestY, 'CHEST', '#f59e0b');
+      drawMarker(midHX, midHY, 'HIP', '#a855f7');
     }
   }
 

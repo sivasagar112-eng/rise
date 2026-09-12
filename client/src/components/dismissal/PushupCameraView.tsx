@@ -1,29 +1,20 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { synth } from '../../services/WebAudioSynth';
-import { PoseDetectionEngine, Keypoint, PoseResult } from '../../services/PoseDetectionEngine';
-import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { PoseDetectionEngine, PoseResult } from '../../services/PoseDetectionEngine';
+import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface PushupCameraViewProps {
   targetReps: number;
   onComplete: () => void;
 }
 
-type PushupPhase =
-  | 'LOADING_MODEL'
-  | 'NOT_IN_POSITION'
-  | 'READY'
-  | 'GOING_DOWN'
-  | 'BOTTOM'
-  | 'GOING_UP'
-  | 'FINISHED';
+type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
-// Biomechanical Pushup Thresholds
-const ELBOW_DOWN_THRESHOLD = 98;   // Arms bent at bottom of pushup (<= 98°)
-const ELBOW_UP_THRESHOLD = 150;    // Arms extended at top of pushup (>= 150°)
-const MIN_REP_DURATION_MS = 650;   // Minimum time to perform a real pushup rep (filters fast flicks)
-const MAX_REP_DURATION_MS = 7000;  // Maximum time for a single rep
-const MIN_REP_COOLDOWN_MS = 1000;  // Debounce between counted reps (1 second)
-const STABLE_FRAMES_REQUIRED = 3;  // Consecutive frames needed to confirm a position
+// Pushup Movement Thresholds
+const MIN_DROP_PX = 20;            // Minimum vertical displacement (pixels) required for shoulder/chest/hip
+const ALIGNMENT_TOLERANCE_PX = 40; // Shoulder, chest, and hip must stay roughly aligned within this tolerance
+const REP_COOLDOWN_MS = 800;       // Cooldown between reps
+const STABLE_FRAMES_GATE = 2;      // Frames required to confirm down/up states
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,
@@ -36,39 +27,42 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const completedRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // Pushup Kinematic Tracking Refs
+  // Simplified Tracking Refs (Shoulder, Chest, Hip only)
   const phaseRef = useRef<PushupPhase>('LOADING_MODEL');
   const repsRef = useRef(0);
   const lastRepMsRef = useRef<number>(0);
-  const descentStartMsRef = useRef<number>(0);
   const maxDropSeenRef = useRef<number>(0);
-  const stableDownFramesRef = useRef(0);
-  const stableUpFramesRef = useRef(0);
+  const stableDownCountRef = useRef(0);
+  const stableUpCountRef = useRef(0);
 
-  // Multi-landmark Baselines (established when user is in horizontal plank with extended arms)
-  const baselineShoulderYRef = useRef<number>(0);
-  const baselineHipYRef = useRef<number>(0);
-  const baselineWristDistRef = useRef<number | null>(null);
+  // Baselines for the UP position (starting height)
+  const baseShoulderYRef = useRef<number | null>(null);
+  const baseChestYRef = useRef<number | null>(null);
+  const baseHipYRef = useRef<number | null>(null);
 
-  // Throttled logging ref
+  // Throttled console log ref
   const lastLogMsRef = useRef<number>(0);
 
   // UI State
   const [reps, setReps] = useState(0);
   const [phase, setPhase] = useState<PushupPhase>('LOADING_MODEL');
-  const [guidance, setGuidance] = useState('Loading AI pose model...');
+  const [guidance, setGuidance] = useState('Loading AI model...');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(PoseDetectionEngine.isReady());
 
-  // Real-time Debug HUD State
-  const [orientationStatus, setOrientationStatus] = useState<'HORIZONTAL' | 'UPRIGHT' | 'UNKNOWN'>('UNKNOWN');
-  const [rejectReason, setRejectReason] = useState<string | null>(null);
-  const [currentAngle, setCurrentAngle] = useState<number | null>(null);
-  const [shoulderDropPx, setShoulderDropPx] = useState<number>(0);
-  const [minDropTarget, setMinDropTarget] = useState<number>(18);
-  const [landmarksHud, setLandmarksHud] = useState('S:– E:– W:– H:–');
+  // Real-time Debug HUD showing Shoulder, Chest, Hip Y values & displacement
+  const [hudData, setHudData] = useState({
+    tracking: false,
+    sY: 0,
+    cY: 0,
+    hY: 0,
+    sDrop: 0,
+    cDrop: 0,
+    hDrop: 0,
+    targetDrop: MIN_DROP_PX,
+  });
 
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
@@ -114,7 +108,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     setReps(repsRef.current);
     synth.playRepChirp();
 
-    console.log(`[PushupEngine] ✅ REP ${repsRef.current}/${targetRepsRef.current} VERIFIED & COUNTED!`);
+    console.log(`[PushupTracker] ✅ REP ${repsRef.current}/${targetRepsRef.current} COUNTED!`);
 
     if (repsRef.current >= targetRepsRef.current) {
       completedRef.current = true;
@@ -130,32 +124,28 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         onCompleteRef.current();
       }, 700);
     } else {
-      phaseRef.current = 'READY';
-      setPhase('READY');
-      setGuidance(`Rep ${repsRef.current} verified! Lower down for next rep.`);
-      setRejectReason(null);
+      phaseRef.current = 'UP';
+      setPhase('UP');
+      setGuidance(`Rep ${repsRef.current} done! Lower down again...`);
     }
   }, []);
 
-  // Preload MoveNet
+  // Load MoveNet
   useEffect(() => {
     let mounted = true;
     const loadModel = async () => {
       try {
-        console.log('[PushupCamera] Loading MoveNet...');
+        console.log('[PushupTracker] Initializing MoveNet detector...');
         await PoseDetectionEngine.getDetector();
         if (mounted) {
           setModelReady(true);
-          phaseRef.current = 'NOT_IN_POSITION';
-          setPhase('NOT_IN_POSITION');
-          setGuidance('Get into horizontal plank position on floor.');
-          console.log('[PushupCamera] MoveNet ready');
+          phaseRef.current = 'WAITING_FOR_BODY';
+          setPhase('WAITING_FOR_BODY');
+          setGuidance('Position phone so shoulders, chest, and hips are visible.');
         }
-      } catch (err: any) {
-        console.error('[PushupCamera] Failed to load MoveNet:', err);
-        if (mounted) {
-          setGuidance('AI model failed to load. Use manual count.');
-        }
+      } catch (err) {
+        console.error('[PushupTracker] Failed to load model:', err);
+        if (mounted) setGuidance('AI model error. Use manual count.');
       }
     };
     loadModel();
@@ -164,26 +154,25 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     };
   }, []);
 
-  // Camera + Pose Analysis Loop
+  // Simplified Tracking Loop: Shoulder, Chest, and Hip Y-axis movement
   useEffect(() => {
     let isCurrentEffect = true;
     mountedRef.current = true;
 
-    // Reset baselines on mount or camera flip
-    baselineShoulderYRef.current = 0;
-    baselineHipYRef.current = 0;
-    baselineWristDistRef.current = null;
+    // Reset baselines on mount or flip
+    baseShoulderYRef.current = null;
+    baseChestYRef.current = null;
+    baseHipYRef.current = null;
     maxDropSeenRef.current = 0;
-    stableDownFramesRef.current = 0;
-    stableUpFramesRef.current = 0;
+    stableDownCountRef.current = 0;
+    stableUpCountRef.current = 0;
 
-    const drawOverlayAndAnalyze = async () => {
+    const processFrame = async () => {
       if (!mountedRef.current || completedRef.current || !isCurrentEffect) return;
 
       const video = videoRef.current;
       const canvas = overlayCanvasRef.current;
 
-      // Force play if paused by WebView
       if (video && video.paused && video.readyState >= 2) {
         video.play().catch(() => {});
       }
@@ -197,18 +186,10 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           }
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          // 1. Run MoveNet Pose Estimation
           const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
           if (result && isCurrentEffect && mountedRef.current) {
-            // Update Landmarks HUD string
-            const sMark = result.hasShoulder ? '✓' : '✗';
-            const eMark = result.hasElbow ? '✓' : '✗';
-            const wMark = result.hasWrist ? '✓' : '✗';
-            const hMark = result.hasHip ? '✓' : '✗';
-            setLandmarksHud(`S:${sMark} E:${eMark} W:${wMark} H:${hMark}`);
-
-            // 2. Draw Skeleton with Dynamic Color (Green for plank, Red for upright)
+            // Draw skeleton & highlight Shoulder, Chest, Hip markers
             PoseDetectionEngine.drawPose(
               ctx,
               result.keypoints,
@@ -220,228 +201,167 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               result.isHorizontal
             );
 
-            // Draw Elbow Angle Text on Canvas
-            const drawAngle = (kp: Keypoint, angle: number | null) => {
-              if (angle !== null && (kp.score ?? 0) > 0.25) {
-                const x = (kp.x / video.videoWidth) * canvas.width;
-                const y = (kp.y / video.videoHeight) * canvas.height;
-                ctx.fillStyle = angle <= ELBOW_DOWN_THRESHOLD ? '#22c55e' : angle >= ELBOW_UP_THRESHOLD ? '#38bdf8' : '#fbbf24';
-                ctx.font = 'bold 15px sans-serif';
-                ctx.fillText(`${Math.round(angle)}°`, x + 8, y - 8);
+            const shoulder = result.shoulder;
+            const chest = result.chest;
+            const hip = result.hip;
+
+            // Only track if shoulder, chest, and hip are detected
+            const hasBodyPoints = Boolean(shoulder && chest && hip && result.isTracking);
+
+            if (!hasBodyPoints) {
+              setHudData((prev) => ({ ...prev, tracking: false }));
+              if (phaseRef.current !== 'FINISHED') {
+                phaseRef.current = 'WAITING_FOR_BODY';
+                setPhase('WAITING_FOR_BODY');
+                setGuidance('Ensure shoulders and hips are clearly visible in camera.');
               }
-            };
-            drawAngle(result.keypoints[7], result.leftElbowAngle);
-            drawAngle(result.keypoints[8], result.rightElbowAngle);
+              rafRef.current = requestAnimationFrame(processFrame);
+              return;
+            }
 
+            // Extract Y-axis positions (pixels from top of image)
+            const sY = shoulder!.y;
+            const cY = chest!.y;
+            const hY = hip!.y;
+
+            // Dynamic minimum movement distance based on video resolution
             const vHeight = video.videoHeight || 480;
-            const requiredMinDrop = Math.max(16, Math.round(vHeight * 0.038));
-            setMinDropTarget(requiredMinDrop);
+            const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.04));
 
-            const avgAngle = result.avgElbowAngle;
-            setCurrentAngle(avgAngle ? Math.round(avgAngle) : null);
+            // Establish or smoothly maintain baseline at UP position
+            if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
+              baseShoulderYRef.current = sY;
+              baseChestYRef.current = cY;
+              baseHipYRef.current = hY;
+            } else if (phaseRef.current === 'UP' || phaseRef.current === 'WAITING_FOR_BODY') {
+              // Slowly smooth baseline when at the top
+              baseShoulderYRef.current = baseShoulderYRef.current * 0.9 + sY * 0.1;
+              baseChestYRef.current = baseChestYRef.current * 0.9 + cY * 0.1;
+              baseHipYRef.current = baseHipYRef.current * 0.9 + hY * 0.1;
+
+              if (phaseRef.current === 'WAITING_FOR_BODY') {
+                phaseRef.current = 'UP';
+                setPhase('UP');
+                setGuidance('Ready! Lower your body down.');
+              }
+            }
+
+            // 1. Track vertical (Y-axis) movement relative to baseline
+            // (In image coordinates, moving DOWN toward the ground increases Y)
+            const sDrop = sY - (baseShoulderYRef.current ?? sY);
+            const cDrop = cY - (baseChestYRef.current ?? cY);
+            const hDrop = hY - (baseHipYRef.current ?? hY);
+
+            // Update real-time HUD
+            setHudData({
+              tracking: true,
+              sY: Math.round(sY),
+              cY: Math.round(cY),
+              hY: Math.round(hY),
+              sDrop: Math.round(sDrop),
+              cDrop: Math.round(cDrop),
+              hDrop: Math.round(hDrop),
+              targetDrop: dynamicMinDrop,
+            });
 
             const now = performance.now();
-            const shouldLog = now - lastLogMsRef.current > 1000;
 
-            // ==============================================================
-            // BIOMECHANICAL GATE 1: Minimum Landmark Visibility (Req 5)
-            // ==============================================================
-            if (!result.isBodyVisible) {
-              setOrientationStatus('UNKNOWN');
-              const missingStr = result.missingLandmarks.join(', ');
-              const reason = `Missing landmarks: ${missingStr}`;
-              setRejectReason(reason);
-              setGuidance(`Step back! Need visible: ${missingStr}`);
-              if (phaseRef.current !== 'FINISHED') {
-                phaseRef.current = 'NOT_IN_POSITION';
-                setPhase('NOT_IN_POSITION');
-              }
-              if (shouldLog) {
-                console.log(`[PushupEngine] ❌ REJECT: ${reason}`);
-                lastLogMsRef.current = now;
-              }
-              rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
-              return;
+            // Debug logging each second or on significant movement
+            if (now - lastLogMsRef.current > 1000) {
+              console.log(
+                `[PushupTracker] Y-pos: S=${sY.toFixed(0)} C=${cY.toFixed(0)} H=${hY.toFixed(0)} | Drop: S=${sDrop.toFixed(0)} C=${cDrop.toFixed(0)} H=${hDrop.toFixed(0)} (Min: ${dynamicMinDrop}) | Phase: ${phaseRef.current}`
+              );
+              lastLogMsRef.current = now;
             }
 
             // ==============================================================
-            // BIOMECHANICAL GATE 2: Body Orientation Check (Req 2)
-            // Must be roughly horizontal/prone (plank), NOT sitting or standing
+            // SIMPLIFIED PUSHUP LOGIC: Shoulder + Chest + Hip Moving Together
             // ==============================================================
-            if (result.isUpright) {
-              setOrientationStatus('UPRIGHT');
-              const reason = 'Body is upright (sitting/standing). Get into horizontal plank!';
-              setRejectReason(reason);
-              setGuidance('Upright posture detected! Lie horizontal on floor.');
-              if (phaseRef.current !== 'FINISHED') {
-                phaseRef.current = 'NOT_IN_POSITION';
-                setPhase('NOT_IN_POSITION');
-              }
-              stableDownFramesRef.current = 0;
-              stableUpFramesRef.current = 0;
-              if (shouldLog) {
-                console.log(`[PushupEngine] ❌ REJECT: ${reason} (torsoAngle=${result.torsoAngleDeg?.toFixed(0)}°)`);
-                lastLogMsRef.current = now;
-              }
-              rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
-              return;
-            }
 
-            // Confirmed horizontal plank form
-            setOrientationStatus('HORIZONTAL');
-
-            const currentShoulderY = result.midShoulder!.y;
-            const currentHipY = result.midHip!.y;
-            const currentWristDist = result.shoulderWristDist;
-
-            // Establish or smoothly track baseline when user is in plank with straight arms
-            if (avgAngle !== null && avgAngle >= 140) {
-              if (baselineShoulderYRef.current === 0) {
-                baselineShoulderYRef.current = currentShoulderY;
-                baselineHipYRef.current = currentHipY;
-                baselineWristDistRef.current = currentWristDist;
-              } else if (phaseRef.current === 'READY' || phaseRef.current === 'NOT_IN_POSITION') {
-                baselineShoulderYRef.current = baselineShoulderYRef.current * 0.85 + currentShoulderY * 0.15;
-                baselineHipYRef.current = baselineHipYRef.current * 0.85 + currentHipY * 0.15;
-                if (currentWristDist && baselineWristDistRef.current) {
-                  baselineWristDistRef.current = baselineWristDistRef.current * 0.85 + currentWristDist * 0.15;
-                }
-              }
-            }
-
-            // Calculate vertical drop progress
-            const shoulderDrop = currentShoulderY - baselineShoulderYRef.current;
-            const wristCompression =
-              baselineWristDistRef.current && currentWristDist
-                ? baselineWristDistRef.current - currentWristDist
-                : 0;
-            // Combined metric: accounts for both absolute camera downward shift and torso-to-wrist compression
-            const effectiveDrop = Math.max(shoulderDrop, wristCompression * 0.7);
-            setShoulderDropPx(Math.round(effectiveDrop));
-
-            const hipDrop = currentHipY - baselineHipYRef.current;
-
-            // ==============================================================
-            // PUSHUP KINEMATIC STATE MACHINE (Req 3, 4, 6)
-            // ==============================================================
-            if (phaseRef.current === 'NOT_IN_POSITION' || phaseRef.current === 'READY') {
-              if (avgAngle !== null && avgAngle >= 140) {
-                phaseRef.current = 'READY';
-                setPhase('READY');
-                setGuidance('Ready! Lower your chest towards the floor.');
-                setRejectReason(null);
-              }
-
-              // Descent Trigger: Both elbow flexion AND vertical torso downward movement
-              if (avgAngle !== null && avgAngle <= 130 && effectiveDrop >= 6) {
+            if (phaseRef.current === 'UP') {
+              // Descent Detection: Shoulder and chest both start moving down together
+              if (sDrop >= 8 && cDrop >= 6) {
                 phaseRef.current = 'GOING_DOWN';
-                descentStartMsRef.current = now;
-                maxDropSeenRef.current = effectiveDrop;
                 setPhase('GOING_DOWN');
-                setGuidance('Lowering down — keep going...');
-                console.log('[PushupEngine] ⬇ DESCENT STARTED: Elbows bending & chest dropping');
+                setGuidance('Lowering down... keep going!');
+                maxDropSeenRef.current = Math.max(sDrop, cDrop);
               }
             } else if (phaseRef.current === 'GOING_DOWN') {
-              if (effectiveDrop > maxDropSeenRef.current) {
-                maxDropSeenRef.current = effectiveDrop;
-              }
+              maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
 
-              // ==============================================================
-              // BOTTOM POSITION VALIDATION:
-              // 1. Elbow angle <= ELBOW_DOWN_THRESHOLD (arms deeply bent)
-              // 2. Shoulder vertical displacement >= requiredMinDrop (chest lowered)
-              // 3. Torso/hip stability (hips didn't spike upwards into downward dog)
-              // ==============================================================
-              const anglePass = avgAngle !== null && avgAngle <= ELBOW_DOWN_THRESHOLD;
-              const dropPass = effectiveDrop >= requiredMinDrop;
-              const hipStabilityPass = hipDrop >= -16; // Hips must not lift drastically while shoulders drop
+              // 2. A valid pushup "DOWN" position:
+              // - Shoulder, chest, and hip ALL move DOWN together by at least dynamicMinDrop
+              // - Shoulder, chest, and hip stay aligned with each other within tolerance
+              const allMovedDown =
+                sDrop >= dynamicMinDrop &&
+                cDrop >= dynamicMinDrop * 0.8 &&
+                hDrop >= dynamicMinDrop * 0.45;
 
-              if (anglePass && dropPass && hipStabilityPass) {
-                stableDownFramesRef.current++;
-                if (stableDownFramesRef.current >= STABLE_FRAMES_REQUIRED) {
-                  phaseRef.current = 'BOTTOM';
-                  setPhase('BOTTOM');
-                  setGuidance('Deep pushup position reached! Push back UP!');
-                  setRejectReason(null);
-                  stableUpFramesRef.current = 0;
+              const alignedTogether =
+                Math.abs(sDrop - cDrop) < ALIGNMENT_TOLERANCE_PX &&
+                Math.abs(cDrop - hDrop) < ALIGNMENT_TOLERANCE_PX;
+
+              if (allMovedDown && alignedTogether) {
+                stableDownCountRef.current++;
+                if (stableDownCountRef.current >= STABLE_FRAMES_GATE) {
+                  phaseRef.current = 'DOWN';
+                  setPhase('DOWN');
+                  setGuidance('Bottom reached! Now push back UP!');
+                  stableUpCountRef.current = 0;
                   console.log(
-                    `[PushupEngine] 🎯 BOTTOM CONFIRMED: angle=${avgAngle?.toFixed(0)}° (<= ${ELBOW_DOWN_THRESHOLD}°), drop=${effectiveDrop.toFixed(0)}px (>= ${requiredMinDrop}px)`
+                    `[PushupTracker] ⬇ DOWN REACHED: S:+${sDrop.toFixed(0)}px, C:+${cDrop.toFixed(0)}px, H:+${hDrop.toFixed(0)}px`
                   );
                 }
               } else {
-                stableDownFramesRef.current = 0;
-                // Specific diagnostic feedback
-                if (avgAngle !== null && avgAngle <= ELBOW_DOWN_THRESHOLD && !dropPass) {
-                  const r = `Chest drop too small (+${Math.round(effectiveDrop)}px / ${requiredMinDrop}px). Lower your full body!`;
-                  setRejectReason(r);
-                  setGuidance('Lower your entire body, not just moving arms!');
-                } else if (avgAngle !== null && avgAngle > ELBOW_DOWN_THRESHOLD && dropPass) {
-                  setGuidance('Bend elbows deeper (under 95°)...');
-                } else if (!hipStabilityPass) {
-                  const r = 'Hips lifted up! Keep body straight as a rigid plank.';
-                  setRejectReason(r);
-                  setGuidance('Keep hips flat — do not spike your waist up.');
-                }
+                stableDownCountRef.current = 0;
               }
 
-              // Aborted rep check
-              if (avgAngle !== null && avgAngle > 145 && effectiveDrop < 8 && now - descentStartMsRef.current > 400) {
-                phaseRef.current = 'READY';
-                setPhase('READY');
-                setGuidance('Incomplete rep — lower yourself fully.');
+              // Aborted rep (returned to top without hitting full depth)
+              if (sDrop < 6 && cDrop < 6 && maxDropSeenRef.current < dynamicMinDrop) {
+                phaseRef.current = 'UP';
+                setPhase('UP');
+                setGuidance('Lower your entire body all the way down.');
               }
-            } else if (phaseRef.current === 'BOTTOM') {
-              // Waiting for ascent to begin
-              if (avgAngle !== null && avgAngle > 115) {
+            } else if (phaseRef.current === 'DOWN') {
+              // Start pushing up: body starts ascending
+              if (sDrop < maxDropSeenRef.current - 6) {
                 phaseRef.current = 'GOING_UP';
                 setPhase('GOING_UP');
-                setGuidance('Pushing back up — fully extend arms!');
-                stableUpFramesRef.current = 0;
-                console.log('[PushupEngine] ⬆ ASCENT STARTED: Pushing back up');
+                setGuidance('Pushing up — return to top!');
+                stableUpCountRef.current = 0;
               }
             } else if (phaseRef.current === 'GOING_UP') {
-              // ==============================================================
-              // TOP POSITION & REP COMPLETION VALIDATION:
-              // 1. Elbow angle extended >= ELBOW_UP_THRESHOLD
-              // 2. Shoulders returned back up towards baseline height
-              // 3. Minimum rep duration passed (not an instant flicker)
-              // 4. Cooldown debounce passed
-              // ==============================================================
-              const angleUpPass = avgAngle !== null && avgAngle >= ELBOW_UP_THRESHOLD;
-              // Shoulders must have ascended at least 60% back towards starting baseline
-              const returnPass = effectiveDrop <= Math.max(10, maxDropSeenRef.current * 0.4);
-              const repDuration = now - descentStartMsRef.current;
-              const durationPass = repDuration >= MIN_REP_DURATION_MS && repDuration <= MAX_REP_DURATION_MS;
-              const debouncePass = now - lastRepMsRef.current >= MIN_REP_COOLDOWN_MS;
+              // 3. A valid pushup "UP" position:
+              // - Shoulder, chest, and hip all move back UP together to starting height
+              const allMovedBackUp =
+                sDrop <= Math.max(8, maxDropSeenRef.current * 0.35) &&
+                cDrop <= Math.max(8, maxDropSeenRef.current * 0.35) &&
+                hDrop <= Math.max(8, maxDropSeenRef.current * 0.35);
 
-              if (angleUpPass && returnPass) {
-                stableUpFramesRef.current++;
-                if (stableUpFramesRef.current >= STABLE_FRAMES_REQUIRED) {
-                  if (durationPass && debouncePass) {
+              if (allMovedBackUp) {
+                stableUpCountRef.current++;
+                if (stableUpCountRef.current >= STABLE_FRAMES_GATE) {
+                  // 4. Count one rep when full cycle completed + cooldown passed
+                  if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
-                    stableDownFramesRef.current = 0;
-                    stableUpFramesRef.current = 0;
-                    // Update baseline to new top position
-                    baselineShoulderYRef.current = currentShoulderY;
-                    baselineHipYRef.current = currentHipY;
+                    stableDownCountRef.current = 0;
+                    stableUpCountRef.current = 0;
+                    // Update baseline to current height for next rep
+                    baseShoulderYRef.current = sY;
+                    baseChestYRef.current = cY;
+                    baseHipYRef.current = hY;
                     countRep();
-                  } else {
-                    phaseRef.current = 'READY';
-                    setPhase('READY');
-                    const r = `Rep too fast (${Math.round(repDuration)}ms). Do smooth pushups.`;
-                    setRejectReason(r);
-                    setGuidance('Rep too fast — perform controlled pushups.');
                   }
                 }
               } else {
-                stableUpFramesRef.current = 0;
+                stableUpCountRef.current = 0;
               }
             }
           }
         }
       }
 
-      rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
+      rafRef.current = requestAnimationFrame(processFrame);
     };
 
     const initCamera = async () => {
@@ -464,8 +384,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
             audio: false,
           });
-        } catch (firstErr: any) {
-          console.warn('[PushupCamera] Primary camera constraints failed, fallback:', firstErr?.name, firstErr?.message);
+        } catch {
           return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
       };
@@ -473,9 +392,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       while (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
         attempts++;
         try {
-          console.log(`[PushupCamera] Starting camera (attempt ${attempts}/${maxAttempts})...`);
           const stream = await attemptGetUserMedia();
-
           if (!isCurrentEffect || !mountedRef.current) {
             stream.getTracks().forEach((t) => t.stop());
             return;
@@ -488,42 +405,19 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             video.setAttribute('playsinline', 'true');
             video.setAttribute('webkit-playsinline', 'true');
             video.muted = true;
-
-            const tryPlay = () => {
-              if (!video || !isCurrentEffect) return;
-              const playPromise = video.play();
-              if (playPromise) {
-                playPromise.catch((e) => {
-                  console.warn('[PushupCamera] Video play deferred:', e);
-                  setTimeout(() => {
-                    if (isCurrentEffect && mountedRef.current && video.paused) {
-                      video.play().catch(() => {});
-                    }
-                  }, 400);
-                });
-              }
-            };
-
-            video.onloadedmetadata = tryPlay;
-            video.onloadeddata = tryPlay;
-            video.oncanplay = tryPlay;
-            tryPlay();
+            video.play().catch(() => {});
           }
 
-          rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
-          console.log('[PushupCamera] Camera active');
+          rafRef.current = requestAnimationFrame(processFrame);
           return;
         } catch (err: any) {
-          console.error(`[PushupCamera] Camera attempt ${attempts} failed:`, err);
           if (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
             await new Promise((resolve) => setTimeout(resolve, 500));
           } else if (isCurrentEffect && mountedRef.current) {
             setCameraError(
               err?.name === 'NotAllowedError'
-                ? 'Camera permission denied. Please grant camera access in settings.'
-                : err?.name === 'NotReadableError'
-                ? 'Camera is in use by another app. Please close other camera apps.'
-                : err?.message || 'Camera failed to initialize.'
+                ? 'Camera permission denied.'
+                : 'Camera is in use by another app.'
             );
           }
         }
@@ -535,10 +429,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     return () => {
       isCurrentEffect = false;
       mountedRef.current = false;
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -564,7 +455,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       {/* Header */}
       <div className="flex items-center space-x-2 text-xs uppercase tracking-wider text-theme-subtext mb-2 font-semibold">
         <Dumbbell size={14} className="text-blue-500" />
-        <span>FULL-BODY PUSHUP VERIFICATION</span>
+        <span>PUSHUP DETECTION (SHOULDER • CHEST • HIP)</span>
       </div>
 
       <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-theme-text mb-1">
@@ -576,38 +467,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         {guidance}
       </p>
 
-      {/* Real-time Status Badges */}
-      <div className="flex items-center gap-2 mb-2 flex-wrap justify-center">
-        {/* Orientation Badge */}
-        <div
-          className={`text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border ${
-            orientationStatus === 'HORIZONTAL'
-              ? 'bg-green-500/10 border-green-500/30 text-green-400'
-              : orientationStatus === 'UPRIGHT'
-              ? 'bg-red-500/10 border-red-500/30 text-red-400 animate-pulse'
-              : 'bg-neutral-800 border-neutral-700 text-neutral-400'
-          }`}
-        >
-          {orientationStatus === 'HORIZONTAL' ? (
-            <>
-              <CheckCircle2 size={11} /> PLANK VERIFIED
-            </>
-          ) : orientationStatus === 'UPRIGHT' ? (
-            <>
-              <AlertCircle size={11} /> BODY UPRIGHT (Sitting/Standing)
-            </>
-          ) : (
-            'SCANNING BODY...'
-          )}
-        </div>
-
-        {/* Landmarks Status */}
-        <div className="text-[10px] px-2.5 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-neutral-300 font-mono">
-          {landmarksHud}
-        </div>
-      </div>
-
-      {/* Video Viewfinder */}
+      {/* Camera Viewfinder */}
       <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-2 shadow-lg">
         {cameraError ? (
           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white bg-neutral-900">
@@ -632,7 +492,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               style={{ pointerEvents: 'none' }}
               className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
             />
-            {/* Live Skeleton & Angle Overlay */}
+            {/* Overlay Canvas displaying Shoulder, Chest, and Hip tracking */}
             <canvas
               ref={overlayCanvasRef}
               className={`absolute inset-0 w-full h-full pointer-events-none ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
@@ -656,58 +516,46 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 <span className="flex items-center gap-1">
                   <Loader2 size={10} className="animate-spin" /> LOADING AI...
                 </span>
+              ) : hudData.tracking ? (
+                <span className="text-green-400">BODY TRACKED ✓</span>
               ) : (
-                'MULTI-POINT TRACK'
+                <span className="text-amber-300">POSITION BODY</span>
               )}
             </div>
           </div>
 
-          {/* Center Target Box */}
+          {/* Phase Badge */}
           <div
-            className={`self-center w-44 h-24 border rounded-xl flex flex-col items-center justify-center transition-colors ${
-              phase === 'BOTTOM'
-                ? 'border-green-400 bg-green-500/20'
+            className={`self-center px-4 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              phase === 'DOWN'
+                ? 'bg-green-500/80 text-white border-green-400 shadow-glow'
                 : phase === 'GOING_DOWN'
-                ? 'border-amber-400 bg-amber-500/20'
+                ? 'bg-amber-500/80 text-white border-amber-400'
                 : phase === 'GOING_UP'
-                ? 'border-blue-400 bg-blue-500/20'
-                : 'border-dashed border-white/30 bg-black/20'
+                ? 'bg-blue-500/80 text-white border-blue-400'
+                : 'bg-black/70 text-white/80 border-white/20'
             }`}
           >
-            <span className="text-[10px] text-white/90 tracking-wider font-bold uppercase">
-              {phase === 'BOTTOM'
-                ? '✓ BOTTOM REACHED'
-                : phase === 'GOING_DOWN'
-                ? '⬇ LOWERING...'
-                : phase === 'GOING_UP'
-                ? '⬆ PUSHING UP...'
-                : orientationStatus === 'UPRIGHT'
-                ? '❌ LIE FLAT ON FLOOR'
-                : 'PLANK READY'}
-            </span>
-            <span className="text-[9px] text-white/70 mt-0.5">
-              {currentAngle !== null ? `Elbow: ${currentAngle}°` : ''}{' '}
-              {shoulderDropPx > 0 ? `| Drop: +${shoulderDropPx}px` : ''}
-            </span>
+            {phase === 'DOWN'
+              ? '✓ DOWN (PUSH UP!)'
+              : phase === 'GOING_DOWN'
+              ? '⬇ GOING DOWN...'
+              : phase === 'GOING_UP'
+              ? '⬆ PUSHING UP...'
+              : phase === 'UP'
+              ? 'READY (LOWER DOWN)'
+              : 'GET IN POSITION'}
           </div>
 
-          {/* Phase Banner */}
+          {/* Bottom Banner */}
           <div className="w-full text-center text-xs text-white font-bold bg-black/75 backdrop-blur-md py-1.5 rounded-xl border border-white/10">
-            {phase === 'LOADING_MODEL'
-              ? 'LOADING AI MODEL...'
-              : phase === 'NOT_IN_POSITION'
-              ? orientationStatus === 'UPRIGHT'
-                ? '❌ UPRIGHT (Get in horizontal plank)'
-                : 'GET IN PLANK POSITION'
-              : phase === 'BOTTOM'
+            {phase === 'DOWN'
               ? 'PUSH BACK UP NOW!'
               : phase === 'GOING_DOWN'
-              ? 'KEEP LOWERING CHEST...'
+              ? 'KEEP LOWERING...'
               : phase === 'GOING_UP'
-              ? 'EXTEND ARMS FULLY!'
-              : phase === 'FINISHED'
-              ? 'COMPLETED!'
-              : 'READY — LOWER DOWN'}
+              ? 'RETURN TO TOP POSITION'
+              : 'SHOULDER • CHEST • HIP SYNCHRONIZED'}
           </div>
         </div>
 
@@ -716,64 +564,40 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in z-20">
             <Check size={52} className="text-green-400 mb-2 animate-bounce" />
             <span className="text-sm font-extrabold tracking-wider text-white uppercase">
-              {targetReps} Pushups Verified
+              {targetReps} Pushups Verified!
             </span>
           </div>
         )}
       </div>
 
-      {/* Rejection / Diagnostic Warning Banner (Displays in real-time when cheat or wrong form detected) */}
-      {rejectReason && (
-        <div className="w-full max-w-xs mb-2 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-medium flex items-center gap-1.5 text-left">
-          <AlertCircle size={13} className="shrink-0 text-amber-400" />
-          <span className="truncate">{rejectReason}</span>
+      {/* Simple Debug HUD: Shoulder / Chest / Hip Y-values */}
+      <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
+        <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
+          <span>Torso Y-Movement Tracker</span>
+          <span className="text-green-400 font-normal">Target: ≥{hudData.targetDrop}px</span>
         </div>
-      )}
-
-      {/* Live Debug HUD Details */}
-      <div className="w-full max-w-xs bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1">
-        <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 mb-1 flex justify-between">
-          <span>Real-Time Pushup HUD</span>
-          <span className="text-blue-400">MoveNet AI</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-neutral-400">Orientation:</span>
-          <span
-            className={
-              orientationStatus === 'HORIZONTAL'
-                ? 'text-green-400 font-bold'
-                : orientationStatus === 'UPRIGHT'
-                ? 'text-red-400 font-bold'
-                : 'text-neutral-400'
-            }
-          >
-            {orientationStatus === 'HORIZONTAL'
-              ? 'HORIZONTAL ✓'
-              : orientationStatus === 'UPRIGHT'
-              ? 'UPRIGHT ✗ (Cheat Guard)'
-              : 'Scanning...'}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-neutral-400">Elbow Angle:</span>
-          <span className="text-neutral-200">
-            {currentAngle !== null ? `${currentAngle}°` : '–'}{' '}
-            <span className="text-neutral-500">(Target: &lt;{ELBOW_DOWN_THRESHOLD}° down / &gt;{ELBOW_UP_THRESHOLD}° up)</span>
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-neutral-400">Chest/Shoulder Drop:</span>
-          <span
-            className={
-              shoulderDropPx >= minDropTarget
-                ? 'text-green-400 font-bold'
-                : shoulderDropPx > 5
-                ? 'text-amber-400'
-                : 'text-neutral-200'
-            }
-          >
-            +{shoulderDropPx}px <span className="text-neutral-500">(Min: {minDropTarget}px)</span>
-          </span>
+        <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">
+          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+            <span className="text-blue-400 font-bold block">SHOULDER</span>
+            <span className="text-neutral-200">{hudData.sY}px</span>
+            <span className={`block font-bold text-[9px] ${hudData.sDrop >= hudData.targetDrop ? 'text-green-400' : 'text-neutral-400'}`}>
+              Δ: {hudData.sDrop > 0 ? `+${hudData.sDrop}` : hudData.sDrop}px
+            </span>
+          </div>
+          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+            <span className="text-amber-400 font-bold block">CHEST</span>
+            <span className="text-neutral-200">{hudData.cY}px</span>
+            <span className={`block font-bold text-[9px] ${hudData.cDrop >= hudData.targetDrop * 0.8 ? 'text-green-400' : 'text-neutral-400'}`}>
+              Δ: {hudData.cDrop > 0 ? `+${hudData.cDrop}` : hudData.cDrop}px
+            </span>
+          </div>
+          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+            <span className="text-purple-400 font-bold block">HIP</span>
+            <span className="text-neutral-200">{hudData.hY}px</span>
+            <span className={`block font-bold text-[9px] ${hudData.hDrop >= hudData.targetDrop * 0.45 ? 'text-green-400' : 'text-neutral-400'}`}>
+              Δ: {hudData.hDrop > 0 ? `+${hudData.hDrop}` : hudData.hDrop}px
+            </span>
+          </div>
         </div>
       </div>
 

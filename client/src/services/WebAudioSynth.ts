@@ -26,64 +26,34 @@ class WebAudioSynth {
     }
   }
 
-  // Play a single minimalist resonant bell chime
-  private playChimeStrike(time: number, freq: number = 587.33): void {
-    if (!this.ctx || !this.masterGain) return;
 
-    // Harmonic 1 (Fundamental)
-    const osc1 = this.ctx.createOscillator();
-    const gain1 = this.ctx.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(freq, time);
-
-    // Harmonic 2 (Subtle overtone)
-    const osc2 = this.ctx.createOscillator();
-    const gain2 = this.ctx.createGain();
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(freq * 1.5, time);
-
-    // Envelope for sharp transient and clean decay
-    gain1.gain.setValueAtTime(0.7, time);
-    gain1.gain.exponentialRampToValueAtTime(0.001, time + 0.9);
-
-    gain2.gain.setValueAtTime(0.25, time);
-    gain2.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
-
-    osc1.connect(gain1);
-    gain1.connect(this.masterGain);
-
-    osc2.connect(gain2);
-    gain2.connect(this.masterGain);
-
-    osc1.start(time);
-    osc2.start(time);
-
-    osc1.stop(time + 1.0);
-    osc2.stop(time + 0.7);
-
-    // Trigger phone vibration in sync with chime strike
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(80);
-    }
-  }
-
-  // Start continuous alarm with gradual volume ramp
+  // Start continuous alarm with gradual volume ramp (Single audio instance)
   public startAlarm(rampDurationSec: number = 30): void {
-    if (this.isPlaying) return;
+    // Release any previous audio instance before starting a new one
+    this.stopAlarm();
+
     this.rampDurationSeconds = Math.max(5, rampDurationSec);
     this.isPlaying = true;
 
-    // Check for custom ringtone first
-    this.customRingtoneUrl = localStorage.getItem('rise_custom_ringtone_url');
+    // Check for user-selected or default smooth rise_alarm.wav audio file
+    const custom = localStorage.getItem('rise_custom_ringtone_url');
+    const audioUrl = custom || '/rise_alarm.wav';
+    this.customRingtoneUrl = audioUrl;
 
-    if (this.customRingtoneUrl) {
-      // Play user's custom audio file on loop
-      this.customAudio = new Audio(this.customRingtoneUrl);
+    try {
+      this.customAudio = new Audio(audioUrl);
       this.customAudio.loop = true;
       this.customAudio.volume = 0.05;
-      this.customAudio.play().catch(e => console.warn('Custom ringtone play failed:', e));
 
-      // Gradual volume ramp for custom audio
+      const playPromise = this.customAudio.play();
+      if (playPromise) {
+        playPromise.catch((e) => {
+          console.warn('[WebAudioSynth] Audio element playback deferred/failed:', e);
+          this.fallbackSmoothSynthesizer();
+        });
+      }
+
+      // Smooth volume ramp
       this.startTime = performance.now();
       this.intervalId = window.setInterval(() => {
         if (!this.customAudio || !this.isPlaying) return;
@@ -91,32 +61,45 @@ class WebAudioSynth {
         const progress = Math.min(1, elapsed / this.rampDurationSeconds);
         this.customAudio.volume = Math.min(1, 0.05 + progress * 0.95);
       }, 200);
-
-      // Vibrate in sync
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([80, 400, 80, 400, 200]);
-      }
-    } else {
-      // Fall back to synthesized chime
-      const ctx = this.initContext();
-      this.startTime = ctx.currentTime;
-
-      this.masterGain = ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.03, ctx.currentTime);
-      this.masterGain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + this.rampDurationSeconds);
-      this.masterGain.connect(ctx.destination);
-
-      const pattern = () => {
-        if (!this.isPlaying || !this.ctx) return;
-        const now = this.ctx.currentTime;
-        this.playChimeStrike(now, 587.33);       // D5
-        this.playChimeStrike(now + 0.25, 783.99); // G5
-        this.playChimeStrike(now + 0.50, 880.00); // A5
-      };
-
-      pattern();
-      this.intervalId = window.setInterval(pattern, 1800);
+    } catch {
+      this.fallbackSmoothSynthesizer();
     }
+  }
+
+  // Fallback purely synthesized smooth ambient morning chord (pure sine, zero harshness)
+  private fallbackSmoothSynthesizer(): void {
+    if (!this.isPlaying) return;
+    const ctx = this.initContext();
+    this.startTime = ctx.currentTime;
+
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.setValueAtTime(0.03, ctx.currentTime);
+    this.masterGain.gain.linearRampToValueAtTime(0.8, ctx.currentTime + this.rampDurationSeconds);
+    this.masterGain.connect(ctx.destination);
+
+    const playSmoothChord = () => {
+      if (!this.isPlaying || !this.ctx || !this.masterGain) return;
+      const now = this.ctx.currentTime;
+      // Warm A-major chord: A3 (220Hz), C#4 (277Hz), E4 (330Hz), A4 (440Hz)
+      const freqs = [220.0, 277.18, 329.63, 440.0];
+      freqs.forEach((f, i) => {
+        if (!this.ctx || !this.masterGain) return;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine'; // Pure gentle sine
+        osc.frequency.setValueAtTime(f, now + i * 0.15);
+        g.gain.setValueAtTime(0.001, now + i * 0.15);
+        g.gain.linearRampToValueAtTime(0.2, now + i * 0.15 + 0.2); // Soft attack
+        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 2.5); // Warm decay
+        osc.connect(g);
+        g.connect(this.masterGain);
+        osc.start(now + i * 0.15);
+        osc.stop(now + i * 0.15 + 2.6);
+      });
+    };
+
+    playSmoothChord();
+    this.intervalId = window.setInterval(playSmoothChord, 3500);
   }
 
   // Calculate current volume ramp percentage (0-100%)

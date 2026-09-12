@@ -151,6 +151,38 @@ public class AlarmSchedulerPlugin extends Plugin {
         }
     }
 
+    /**
+     * Start the native AlarmService to play the single smooth ringtone on native Android
+     */
+    @PluginMethod
+    public void startRinging(PluginCall call) {
+        try {
+            String alarmId = call.getString("alarmId", "test-alarm");
+            String alarmTime = call.getString("alarmTime", "07:00");
+            String alarmLabel = call.getString("alarmLabel", "Rise Alarm");
+            int rampDuration = call.getInt("rampDuration", 30);
+
+            Intent serviceIntent = new Intent(getContext(), AlarmService.class);
+            serviceIntent.putExtra("alarmId", alarmId);
+            serviceIntent.putExtra("alarmTime", alarmTime);
+            serviceIntent.putExtra("alarmLabel", alarmLabel);
+            serviceIntent.putExtra("rampDuration", rampDuration);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                getContext().startForegroundService(serviceIntent);
+            } else {
+                getContext().startService(serviceIntent);
+            }
+
+            JSObject result = new JSObject();
+            result.put("success", true);
+            call.resolve(result);
+            Log.d(TAG, "Started native AlarmService for alarm " + alarmId);
+        } catch (Exception e) {
+            call.reject("Failed to start ringing: " + e.getMessage());
+        }
+    }
+
     // --- Static helpers (also used by BootReceiver) ---
 
     public static void scheduleNativeAlarm(
