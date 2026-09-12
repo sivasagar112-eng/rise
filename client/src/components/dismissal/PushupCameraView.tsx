@@ -1,46 +1,47 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { synth } from '../../services/WebAudioSynth';
-import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert } from 'lucide-react';
+import { PoseDetectionEngine, Keypoint, PoseResult } from '../../services/PoseDetectionEngine';
+import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface PushupCameraViewProps {
   targetReps: number;
   onComplete: () => void;
 }
 
-type PushupPhase = 'CALIBRATING' | 'READY' | 'GOING_DOWN' | 'BOTTOM' | 'GOING_UP' | 'FINISHED';
+type PushupPhase = 'LOADING_MODEL' | 'READY' | 'DOWN' | 'UP' | 'FINISHED';
+
+// Pushup detection thresholds
+const ELBOW_DOWN_ANGLE = 110;   // Below this = arms bent (pushup down position)
+const ELBOW_UP_ANGLE = 150;     // Above this = arms extended (pushup up position)
+const MIN_REP_INTERVAL_MS = 600; // Minimum time between two counted reps
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,
   onComplete,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const completedRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // Core Motion Tracking (Sum of Absolute Differences)
-  const baselineRef = useRef<Float32Array | null>(null);
-  const calibrationFramesRef = useRef(0);
-  const smoothedDiffRef = useRef(0);
-  const maxDiffSeenRef = useRef(20); // Dynamic target scaling
-
-  // Time & Kinematics state tracking
-  const phaseRef = useRef<PushupPhase>('CALIBRATING');
-  const descentStartMsRef = useRef<number>(0);
-  const bottomStartMsRef = useRef<number>(0);
-  const hasValidBottomRef = useRef(false);
-  const lastRepMsRef = useRef<number>(0);
+  // Pushup tracking refs
+  const phaseRef = useRef<PushupPhase>('LOADING_MODEL');
   const repsRef = useRef(0);
+  const lastRepMsRef = useRef<number>(0);
+  const stableDownFramesRef = useRef(0);  // # consecutive frames in DOWN position
+  const stableUpFramesRef = useRef(0);    // # consecutive frames in UP position
 
+  // UI state
   const [reps, setReps] = useState(0);
-  const [depthProgress, setDepthProgress] = useState(0);
-  const [phase, setPhase] = useState<PushupPhase>('CALIBRATING');
-  const [guidance, setGuidance] = useState('Get in plank position & hold still...');
+  const [phase, setPhase] = useState<PushupPhase>('LOADING_MODEL');
+  const [guidance, setGuidance] = useState('Loading AI model...');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState('');
+  const [modelReady, setModelReady] = useState(PoseDetectionEngine.isReady());
 
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
@@ -80,204 +81,192 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     }
   }, []);
 
+  // Count a rep
+  const countRep = useCallback(() => {
+    repsRef.current += 1;
+    setReps(repsRef.current);
+    synth.playRepChirp();
+
+    if (repsRef.current >= targetRepsRef.current) {
+      completedRef.current = true;
+      phaseRef.current = 'FINISHED';
+      setIsComplete(true);
+      setPhase('FINISHED');
+      setGuidance(`${targetRepsRef.current} Pushups Completed!`);
+      setTimeout(() => {
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+        onCompleteRef.current();
+      }, 700);
+    } else {
+      phaseRef.current = 'UP';
+      setPhase('UP');
+      setGuidance(`Rep ${repsRef.current} counted! Go down again...`);
+    }
+  }, []);
+
+  // Load MoveNet model
+  useEffect(() => {
+    let mounted = true;
+    const loadModel = async () => {
+      try {
+        console.log('[PushupCamera] Loading MoveNet model...');
+        await PoseDetectionEngine.getDetector();
+        if (mounted) {
+          setModelReady(true);
+          phaseRef.current = 'READY';
+          setPhase('READY');
+          setGuidance('Position phone so upper body is visible. Get in plank position!');
+          console.log('[PushupCamera] MoveNet model ready');
+        }
+      } catch (err: any) {
+        console.error('[PushupCamera] Failed to load MoveNet:', err);
+        if (mounted) {
+          setGuidance('AI model failed to load. Use manual count.');
+        }
+      }
+    };
+    loadModel();
+    return () => { mounted = false; };
+  }, []);
+
+  // Camera + detection loop
   useEffect(() => {
     let isCurrentEffect = true;
     mountedRef.current = true;
-    calibrationFramesRef.current = 0;
-    smoothedDiffRef.current = 0;
-    maxDiffSeenRef.current = 20;
-    baselineRef.current = null;
-    hasValidBottomRef.current = false;
-    phaseRef.current = 'CALIBRATING';
-    descentStartMsRef.current = 0;
-    bottomStartMsRef.current = 0;
-    
-    // Explicitly reset all UI state in case of camera flip re-render
-    setPhase('CALIBRATING');
-    setDepthProgress(0);
-    setGuidance('Get in plank position & hold still...');
 
-    // 1 second of calibration at ~30fps
-    const CALIBRATION_FRAMES = 30; 
+    // Reset tracking state for camera flip
+    stableDownFramesRef.current = 0;
+    stableUpFramesRef.current = 0;
 
-    const tick = () => {
-      if (!mountedRef.current || completedRef.current) return;
+    const drawOverlayAndAnalyze = async () => {
+      if (!mountedRef.current || completedRef.current || !isCurrentEffect) return;
 
       const video = videoRef.current;
-      const canvas = canvasRef.current;
+      const canvas = overlayCanvasRef.current;
 
-      // Force play if Android WebView unexpectedly paused it
+      // Force play if Android WebView paused it
       if (video && video.paused && video.readyState >= 2) {
         video.play().catch(() => {});
       }
 
-      if (video && canvas && video.readyState >= 2) {
-        const W = 64;
-        const H = 48; // Low res for extremely fast pixel processing
-        canvas.width = W;
-        canvas.height = H;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
+      if (video && canvas && video.readyState >= 2 && modelReady) {
+        const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(video, 0, 0, W, H);
-          const { data } = ctx.getImageData(0, 0, W, H);
-
-          if (!baselineRef.current) {
-            baselineRef.current = new Float32Array(W * H);
+          // Set canvas to match video dimensions
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
           }
-          const baseline = baselineRef.current;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          let diffSum = 0;
+          // Run pose detection
+          const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
-          // Universal optical displacement algorithm (SAD)
-          // Works flawlessly for both Floor and Wall modes without needing to know which one it is.
-          for (let i = 0; i < W * H; i++) {
-            const r = data[i * 4];
-            const g = data[i * 4 + 1];
-            const b = data[i * 4 + 2];
-            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (result && isCurrentEffect && mountedRef.current) {
+            // Draw skeleton overlay
+            PoseDetectionEngine.drawPose(
+              ctx,
+              result.keypoints,
+              canvas.width,
+              canvas.height,
+              video.videoWidth,
+              video.videoHeight
+            );
 
-            if (calibrationFramesRef.current < CALIBRATION_FRAMES) {
-              // Build clean baseline by averaging frames
-              baseline[i] = baseline[i] === 0 ? lum : baseline[i] * 0.8 + lum * 0.2;
+            // Draw elbow angle labels on the overlay
+            const drawAngleLabel = (kp: Keypoint, angle: number | null) => {
+              if (angle !== null && (kp.score ?? 0) > 0.2) {
+                const x = (kp.x / video.videoWidth) * canvas.width;
+                const y = (kp.y / video.videoHeight) * canvas.height;
+                ctx.fillStyle = angle < ELBOW_DOWN_ANGLE ? '#00ff00' : (angle > ELBOW_UP_ANGLE ? '#00ccff' : '#ffaa00');
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText(`${Math.round(angle)}°`, x + 8, y - 8);
+              }
+            };
+
+            // Draw angle labels at elbow positions
+            drawAngleLabel(result.keypoints[7], result.leftElbowAngle);
+            drawAngleLabel(result.keypoints[8], result.rightElbowAngle);
+
+            // Build debug string
+            const avgAngle = result.avgElbowAngle;
+            let debugStr = '';
+            if (result.isBodyVisible && avgAngle !== null) {
+              debugStr = `Angle: ${Math.round(avgAngle)}° | Conf: ${(result.confidence * 100).toFixed(0)}%`;
             } else {
-              // Calculate displacement from baseline
-              const diff = Math.abs(lum - baseline[i]);
-              diffSum += diff;
+              debugStr = `Body: ${result.isBodyVisible ? 'YES' : 'NO'} | Conf: ${(result.confidence * 100).toFixed(0)}%`;
+            }
+            setDebugInfo(debugStr);
 
-              // Very slowly absorb lighting changes into baseline ONLY when user is still (READY)
-              if (phaseRef.current === 'READY' && smoothedDiffRef.current < 8) {
-                baseline[i] = baseline[i] * 0.98 + lum * 0.02;
+            // === PUSHUP STATE MACHINE ===
+            if (phaseRef.current !== 'LOADING_MODEL' && phaseRef.current !== 'FINISHED') {
+              if (!result.isBodyVisible) {
+                setGuidance('Position phone so your upper body and arms are visible');
+              } else if (avgAngle !== null) {
+                const now = performance.now();
+
+                if (phaseRef.current === 'READY' || phaseRef.current === 'UP') {
+                  // Waiting for user to go DOWN
+                  if (avgAngle < ELBOW_DOWN_ANGLE) {
+                    stableDownFramesRef.current++;
+                    // Require 3 consecutive frames to confirm down position
+                    if (stableDownFramesRef.current >= 3) {
+                      phaseRef.current = 'DOWN';
+                      setPhase('DOWN');
+                      setGuidance('Arms bent! Now push back UP!');
+                      stableUpFramesRef.current = 0;
+                    }
+                  } else {
+                    stableDownFramesRef.current = 0;
+                    if (phaseRef.current === 'READY') {
+                      setGuidance('Lower yourself — bend your elbows!');
+                    }
+                  }
+                } else if (phaseRef.current === 'DOWN') {
+                  // Waiting for user to come back UP
+                  if (avgAngle > ELBOW_UP_ANGLE) {
+                    stableUpFramesRef.current++;
+                    // Require 3 consecutive frames to confirm up position
+                    if (stableUpFramesRef.current >= 3) {
+                      // Check minimum interval between reps
+                      if (now - lastRepMsRef.current >= MIN_REP_INTERVAL_MS) {
+                        lastRepMsRef.current = now;
+                        stableDownFramesRef.current = 0;
+                        stableUpFramesRef.current = 0;
+                        countRep();
+                      }
+                    }
+                  } else {
+                    stableUpFramesRef.current = 0;
+                    if (avgAngle < ELBOW_DOWN_ANGLE) {
+                      setGuidance('Holding... now push UP!');
+                    } else {
+                      setGuidance('Keep pushing up — extend your arms!');
+                    }
+                  }
+                }
               }
             }
-          }
-
-          if (calibrationFramesRef.current < CALIBRATION_FRAMES) {
-            calibrationFramesRef.current++;
-            if (calibrationFramesRef.current === CALIBRATION_FRAMES) {
-              phaseRef.current = 'READY';
-              setPhase('READY');
-              setGuidance('Ready! Lower yourself down.');
-            }
-            rafRef.current = requestAnimationFrame(tick);
-            return;
-          }
-
-          const avgDiff = diffSum / (W * H);
-          smoothedDiffRef.current = smoothedDiffRef.current * 0.7 + avgDiff * 0.3;
-          const currentDiff = smoothedDiffRef.current;
-
-          // Auto-scale target depth based on user's actual range of motion
-          if (currentDiff > maxDiffSeenRef.current) {
-            // Cap the max reference so it doesn't get unreachably high if the camera gets bumped
-            maxDiffSeenRef.current = Math.min(50, currentDiff);
-          }
-          
-          // Target is 75% of their max observed displacement, clamped between 18 and 38
-          const dynamicTarget = Math.max(18, Math.min(38, maxDiffSeenRef.current * 0.75));
-
-          const rawDepth = (currentDiff / dynamicTarget) * 100;
-          const depth = Math.min(100, Math.max(0, Math.round(rawDepth)));
-          setDepthProgress(depth);
-
-          const now = performance.now();
-
-          // === KINEMATICS STATE MACHINE ===
-          // Prevents cheating (hand waves, head bobs) by enforcing strict timing & depth gates
-          
-          if (phaseRef.current === 'READY') {
-            if (depth >= 30) {
-              phaseRef.current = 'GOING_DOWN';
-              descentStartMsRef.current = now;
-              hasValidBottomRef.current = false;
-              setPhase('GOING_DOWN');
-              setGuidance('Keep going down...');
-            }
-          } 
-          else if (phaseRef.current === 'GOING_DOWN') {
-            if (depth >= 85) {
-              // Must take at least 150ms to reach bottom (filters out fast hand wipes across lens)
-              if (now - descentStartMsRef.current >= 150) {
-                phaseRef.current = 'BOTTOM';
-                bottomStartMsRef.current = now;
-                setPhase('BOTTOM');
-                setGuidance('Push back up!');
-              }
-            } else if (depth < 20 && now - descentStartMsRef.current > 300) {
-              // Aborted rep
-              phaseRef.current = 'READY';
-              setPhase('READY');
-              setGuidance('Lower yourself fully.');
-            }
-          } 
-          else if (phaseRef.current === 'BOTTOM') {
-            if (now - bottomStartMsRef.current >= 150) {
-              hasValidBottomRef.current = true; // Proves they held the bottom briefly
-            }
-            if (depth <= 60) {
-              if (hasValidBottomRef.current) {
-                phaseRef.current = 'GOING_UP';
-                setPhase('GOING_UP');
-                setGuidance('Almost there...');
-              } else {
-                // Rushed the bottom (bounce), reset
-                phaseRef.current = 'READY';
-                setPhase('READY');
-                setGuidance('Hold the bottom for a moment.');
-              }
-            }
-          } 
-          else if (phaseRef.current === 'GOING_UP') {
-            if (depth <= 25) {
-              const duration = now - descentStartMsRef.current;
-              // A real human pushup takes between 0.7s and 8s
-              if (duration >= 700 && duration <= 8000 && (now - lastRepMsRef.current) >= 800) {
-                countRep(now);
-              } else {
-                phaseRef.current = 'READY';
-                setPhase('READY');
-                setGuidance('Rep too fast or incomplete.');
-              }
+          } else {
+            // No pose result — clear debug
+            if (modelReady) {
+              setDebugInfo('No body detected');
+              setGuidance('Position your phone so your upper body is in frame');
             }
           }
         }
       }
 
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    const countRep = (now: number) => {
-      lastRepMsRef.current = now;
-      repsRef.current += 1;
-      setReps(repsRef.current);
-      synth.playRepChirp();
-
-      // VIBRATION REMOVED per user request
-
-      if (repsRef.current >= targetRepsRef.current) {
-        completedRef.current = true;
-        phaseRef.current = 'FINISHED';
-        setIsComplete(true);
-        setPhase('FINISHED');
-        setGuidance(`${targetRepsRef.current} Pushups Completed!`);
-        setTimeout(() => {
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach((t) => t.stop());
-            streamRef.current = null;
-          }
-          onCompleteRef.current();
-        }, 700);
-      } else {
-        phaseRef.current = 'READY';
-        setPhase('READY');
-        setGuidance(`Rep ${repsRef.current} counted! Next rep...`);
-      }
+      rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
     };
 
     const initCamera = async () => {
       setCameraError(null);
 
-      // Clean up any existing stream before creating a new one
+      // Clean up any existing stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -296,22 +285,18 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             audio: false,
           });
         } catch (firstErr: any) {
-          console.warn('[PushupCamera] Primary camera constraints failed, attempting fallback:', firstErr?.name, firstErr?.message);
-          return await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          });
+          console.warn('[PushupCamera] Primary constraints failed, fallback:', firstErr?.name, firstErr?.message);
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
       };
 
       while (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
         attempts++;
         try {
-          console.log(`[PushupCamera] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
+          console.log(`[PushupCamera] Camera attempt ${attempts}/${maxAttempts}...`);
           const stream = await attemptGetUserMedia();
 
           if (!isCurrentEffect || !mountedRef.current) {
-            console.log('[PushupCamera] Effect invalidated during getUserMedia, stopping new tracks');
             stream.getTracks().forEach((t) => t.stop());
             return;
           }
@@ -329,7 +314,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const playPromise = video.play();
               if (playPromise) {
                 playPromise.catch((e) => {
-                  console.warn('[PushupCamera] Play call deferred by browser/WebView:', e);
+                  console.warn('[PushupCamera] Play deferred:', e);
                   setTimeout(() => {
                     if (isCurrentEffect && mountedRef.current && video.paused) {
                       video.play().catch(() => {});
@@ -345,25 +330,24 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             tryPlay();
           }
 
-          rafRef.current = requestAnimationFrame(tick);
-          console.log('[PushupCamera] Camera successfully started and bound to video');
-          return; // Success!
+          // Start the detection loop
+          rafRef.current = requestAnimationFrame(drawOverlayAndAnalyze);
+          console.log('[PushupCamera] Camera started successfully');
+          return;
         } catch (err: any) {
-          console.error(`[PushupCamera] Camera initialization failed (attempt ${attempts}):`, {
+          console.error(`[PushupCamera] Camera attempt ${attempts} failed:`, {
             name: err?.name,
             message: err?.message,
-            constraint: err?.constraint,
           });
 
           if (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
-            // Wait 500ms before next attempt (e.g. while lock screen wakes or app foregrounds)
             await new Promise((resolve) => setTimeout(resolve, 500));
           } else if (isCurrentEffect && mountedRef.current) {
             setCameraError(
               err?.name === 'NotAllowedError'
                 ? 'Camera permission denied. Please grant camera access in app settings.'
                 : err?.name === 'NotReadableError'
-                ? 'Camera is in use by another app or lockscreen. Please try again.'
+                ? 'Camera is in use by another app. Please try again.'
                 : err?.message || 'Camera failed to initialize.'
             );
           }
@@ -388,7 +372,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode]);
+  }, [facingMode, modelReady, countRep]);
 
   return (
     <div className="w-full flex flex-col items-center select-none text-center">
@@ -397,7 +381,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         video::-webkit-media-controls-enclosure { display: none !important; }
         video::-webkit-media-controls-panel { display: none !important; }
       `}} />
-      
+
       <div className="flex items-center space-x-2 text-xs uppercase tracking-wider text-theme-subtext mb-2 font-semibold">
         <Dumbbell size={14} className="text-blue-500" />
         <span>PUSHUP VERIFICATION</span>
@@ -406,13 +390,20 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-theme-text mb-1">
         Do {targetReps} Pushups
       </h2>
-      <p className="text-xs text-theme-subtext max-w-xs mb-4 min-h-[32px] flex items-center justify-center">
+      <p className="text-xs text-theme-subtext max-w-xs mb-2 min-h-[32px] flex items-center justify-center">
         {guidance}
       </p>
 
       <div className="text-[10px] mb-2 px-3 py-1 rounded-full border border-theme-border bg-theme-card text-theme-subtext font-semibold">
-        🚀 Universal Motion Track
+        🤖 AI Pose Detection {modelReady ? '✓' : '⏳'}
       </div>
+
+      {/* Debug info bar */}
+      {debugInfo && (
+        <div className="text-[10px] mb-2 px-3 py-1 rounded-full bg-black/80 text-green-400 font-mono">
+          {debugInfo}
+        </div>
+      )}
 
       <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-4 shadow-lg">
         {cameraError ? (
@@ -427,18 +418,25 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             </button>
           </div>
         ) : (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            autoPlay
-            disablePictureInPicture
-            controls={false}
-            style={{ pointerEvents: 'none' }}
-            className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-          />
+          <>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              disablePictureInPicture
+              controls={false}
+              style={{ pointerEvents: 'none' }}
+              className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+            />
+            {/* Skeleton overlay canvas */}
+            <canvas
+              ref={overlayCanvasRef}
+              className={`absolute inset-0 w-full h-full pointer-events-none ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+              style={{ objectFit: 'cover' }}
+            />
+          </>
         )}
-        <canvas ref={canvasRef} className="hidden" />
 
         <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
           <div className="flex justify-between items-start w-full">
@@ -450,47 +448,43 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               <FlipHorizontal size={16} />
             </button>
             <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
-              {phase === 'CALIBRATING' ? 'CALIBRATING...' : 'SENSOR ACTIVE'}
+              {phase === 'LOADING_MODEL' ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 size={10} className="animate-spin" /> LOADING AI...
+                </span>
+              ) : (
+                'POSE ACTIVE'
+              )}
             </div>
           </div>
 
-          <div className="absolute left-3 top-12 bottom-12 w-2.5 bg-black/40 rounded-full overflow-hidden flex flex-col justify-end border border-white/20">
-            <div className="absolute left-0 right-0 top-[15%] border-t border-dashed border-amber-400 z-10" />
-            <div
-              className={`w-full transition-all duration-100 rounded-full ${
-                depthProgress >= 85 ? 'bg-green-400 shadow-glow' : 'bg-blue-500'
-              }`}
-              style={{ height: `${depthProgress}%` }}
-            />
-          </div>
-
           <div
-            className={`self-center w-40 h-32 border rounded-xl flex flex-col items-center justify-center transition-colors ${
-              depthProgress >= 85
+            className={`self-center w-40 h-24 border rounded-xl flex flex-col items-center justify-center transition-colors ${
+              phase === 'DOWN'
                 ? 'border-green-400 bg-green-500/20'
+                : phase === 'UP'
+                ? 'border-blue-400 bg-blue-500/20'
                 : 'border-dashed border-white/40 bg-black/20'
             }`}
           >
             <span className="text-[10px] text-white/80 tracking-wider font-semibold uppercase">
-              MOTION TARGET
+              {phase === 'DOWN' ? '⬇ ARMS BENT' : phase === 'UP' ? '⬆ ARMS EXTENDED' : 'BODY POSITION'}
             </span>
             <span className="text-[9px] text-white/60">
-              {depthProgress >= 85 ? 'DEPTH REACHED ✓' : `${depthProgress}%`}
+              {phase === 'DOWN' ? 'Now push up!' : phase === 'UP' ? 'Go down again!' : 'Waiting for motion...'}
             </span>
           </div>
 
           <div className="w-full text-center text-xs text-white font-bold bg-black/70 backdrop-blur-md py-1.5 rounded-xl border border-white/10">
-            {phase === 'CALIBRATING'
-              ? 'STAY STILL...'
-              : phase === 'GOING_DOWN'
-              ? 'LOWERING...'
-              : phase === 'BOTTOM'
-              ? 'PUSH UP NOW!'
-              : phase === 'GOING_UP'
-              ? 'ASCENDING...'
+            {phase === 'LOADING_MODEL'
+              ? 'LOADING AI MODEL...'
+              : phase === 'DOWN'
+              ? 'PUSH BACK UP!'
+              : phase === 'UP'
+              ? 'LOWER YOURSELF!'
               : phase === 'FINISHED'
               ? 'COMPLETED!'
-              : 'READY IN POSITION'}
+              : 'READY — LOWER DOWN'}
           </div>
         </div>
 

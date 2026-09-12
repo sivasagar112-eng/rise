@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { StorageService } from './services/StorageService';
+import { ModelPreloader } from './services/ModelPreloader';
 import { Alarm, WakeLogItem } from './types/alarm';
 import { useAlarmScheduler } from './hooks/useAlarmScheduler';
 import { Header } from './components/layout/Header';
@@ -41,6 +42,11 @@ export const App: React.FC = () => {
     alarms,
     onAlarmTrigger: handleAlarmTrigger,
   });
+
+  // Preload ML models (MoveNet + COCO-SSD) in background at app startup
+  useEffect(() => {
+    ModelPreloader.preloadAll();
+  }, []);
 
   // Sync with remote server on mount if logged in
   useEffect(() => {
