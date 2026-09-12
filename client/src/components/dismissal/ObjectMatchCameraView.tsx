@@ -35,19 +35,26 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
   // 1. Load heavy AI model entirely in the background ONCE
   useEffect(() => {
     let mounted = true;
     const loadAi = async () => {
       try {
+        console.log('[ObjectMatch] Loading COCO-SSD model...');
         await tf.ready();
         const model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
         if (mounted) {
           modelRef.current = model;
           setIsAiReady(true);
+          console.log('[ObjectMatch] COCO-SSD model loaded successfully');
         }
       } catch (aiErr: any) {
-        console.error('AI Model failed to load', aiErr);
+        console.error('[ObjectMatch] AI Model failed to load:', aiErr);
         if (mounted) {
           setErrorMessage(aiErr.message || 'Failed to load AI model weights.');
           setPhase('ERROR');
@@ -60,51 +67,91 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
 
   // 2. Start/Restart Camera when facingMode changes
   useEffect(() => {
+    let isCurrentEffect = true;
     let mounted = true;
 
     const startCamera = async () => {
-      // Stop existing stream before requesting new
-      streamRef.current?.getTracks().forEach(t => t.stop());
+      // Clean up any existing stream before creating a new one
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: false,
-        });
+      let attempts = 0;
+      const maxAttempts = 3;
 
-        if (!mounted) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch(e => console.warn('Video play interrupted', e));
-          };
-        }
-        setPhase('SCANNING');
-      } catch (err: any) {
-        console.warn('Initial camera constraint failed in ObjectMatch, trying fallback:', err);
+      const attemptGetUserMedia = async (): Promise<MediaStream> => {
         try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          if (!mounted) {
-            fallbackStream.getTracks().forEach(t => t.stop());
+          return await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false,
+          });
+        } catch (firstErr: any) {
+          console.warn('[ObjectMatch] Primary camera constraints failed, trying fallback:', firstErr?.name, firstErr?.message);
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      };
+
+      while (attempts < maxAttempts && isCurrentEffect && mounted) {
+        attempts++;
+        try {
+          console.log(`[ObjectMatch] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
+          const stream = await attemptGetUserMedia();
+
+          if (!isCurrentEffect || !mounted) {
+            console.log('[ObjectMatch] Effect cancelled during getUserMedia, stopping stream');
+            stream.getTracks().forEach(t => t.stop());
             return;
           }
-          streamRef.current = fallbackStream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = fallbackStream;
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play().catch(e => console.warn('Fallback play interrupted', e));
+
+          streamRef.current = stream;
+          const video = videoRef.current;
+          if (video) {
+            video.srcObject = stream;
+            video.setAttribute('playsinline', 'true');
+            video.setAttribute('webkit-playsinline', 'true');
+            video.muted = true;
+
+            const tryPlay = () => {
+              if (!video || !isCurrentEffect) return;
+              video.play().catch(e => {
+                console.warn('[ObjectMatch] Video play deferred:', e);
+                setTimeout(() => {
+                  if (isCurrentEffect && mounted && video.paused) {
+                    video.play().catch(() => {});
+                  }
+                }, 400);
+              });
             };
+
+            video.onloadedmetadata = tryPlay;
+            video.onloadeddata = tryPlay;
+            video.oncanplay = tryPlay;
+            tryPlay();
           }
+
           setPhase('SCANNING');
-        } catch (fallbackErr: any) {
-          console.error('All camera init failed in ObjectMatch:', fallbackErr);
-          if (mounted) {
-            setErrorMessage(fallbackErr.message || 'Camera access was blocked.');
+          console.log('[ObjectMatch] Camera successfully started');
+          return; // Success!
+        } catch (err: any) {
+          console.error(`[ObjectMatch] Camera initialization attempt ${attempts} failed:`, {
+            name: err?.name,
+            message: err?.message,
+          });
+
+          if (attempts < maxAttempts && isCurrentEffect && mounted) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else if (isCurrentEffect && mounted) {
+            setErrorMessage(
+              err?.name === 'NotAllowedError'
+                ? 'Camera permission denied. Please enable camera access.'
+                : err?.name === 'NotReadableError'
+                ? 'Camera hardware busy. Please retry.'
+                : err?.message || 'Camera access was blocked.'
+            );
             setPhase('ERROR');
           }
         }
@@ -113,6 +160,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
 
     startCamera();
     return () => {
+      isCurrentEffect = false;
       mounted = false;
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
@@ -162,7 +210,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
             setPhase('DETECTED');
             setTimeout(() => {
               streamRef.current?.getTracks().forEach(t => t.stop());
-              onComplete();
+              onCompleteRef.current();
             }, 1200);
             return;
           }

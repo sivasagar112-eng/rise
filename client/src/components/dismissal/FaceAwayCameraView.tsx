@@ -26,6 +26,11 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
   const [statusText, setStatusText] = useState('Opening Front Camera...');
   const [showEmergencyDismiss, setShowEmergencyDismiss] = useState(false);
 
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
   // Toggle camera front/rear
   const handleToggleCamera = useCallback(() => {
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
@@ -40,6 +45,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
   }, []);
 
   useEffect(() => {
+    let isCurrentEffect = true;
     mountedRef.current = true;
     sustainedMsRef.current = 0;
     initialFaceDetectedRef.current = false;
@@ -145,7 +151,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
                 streamRef.current.getTracks().forEach((t) => t.stop());
                 streamRef.current = null;
               }
-              onComplete();
+              onCompleteRef.current();
             }, 600);
             return;
           }
@@ -155,73 +161,102 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
     };
 
     const initCamera = async () => {
-      try {
-        let stream: MediaStream;
+      // Clean up any existing stream before creating a new one
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      const attemptGetUserMedia = async (): Promise<MediaStream> => {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
+          return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
             audio: false,
           });
         } catch {
           // Fallback: request any available camera
-          stream = await navigator.mediaDevices.getUserMedia({
+          return await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false,
           });
         }
+      };
 
-        if (!mountedRef.current) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
+      while (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
+        attempts++;
+        try {
+          console.log(`[FaceAwayCamera] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
+          const stream = await attemptGetUserMedia();
 
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (video) {
-          video.srcObject = stream;
+          if (!isCurrentEffect || !mountedRef.current) {
+            console.log('[FaceAwayCamera] Effect invalidated during getUserMedia, stopping new tracks');
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
 
-          // Ensure playsinline is set as attribute for Android WebView compatibility
-          video.setAttribute('playsinline', 'true');
-          video.setAttribute('webkit-playsinline', 'true');
-          video.muted = true;
+          streamRef.current = stream;
+          const video = videoRef.current;
+          if (video) {
+            video.srcObject = stream;
+            video.setAttribute('playsinline', 'true');
+            video.setAttribute('webkit-playsinline', 'true');
+            video.muted = true;
 
-          // Aggressive play strategy: try play immediately, on metadata, and on data load
-          const tryPlay = () => {
-            if (!video) return;
-            const playPromise = video.play();
-            if (playPromise) {
-              playPromise.catch((e) => {
-                console.warn('FaceAway play attempt:', e);
-                // Retry after a short delay
-                setTimeout(() => {
-                  video.play().catch(() => {});
-                }, 200);
-              });
-            }
-          };
+            const tryPlay = () => {
+              if (!video || !isCurrentEffect) return;
+              const playPromise = video.play();
+              if (playPromise) {
+                playPromise.catch((e) => {
+                  console.warn('[FaceAwayCamera] Play call deferred:', e);
+                  setTimeout(() => {
+                    if (isCurrentEffect && mountedRef.current && video.paused) {
+                      video.play().catch(() => {});
+                    }
+                  }, 400);
+                });
+              }
+            };
 
-          video.onloadedmetadata = tryPlay;
-          video.onloadeddata = () => {
+            video.onloadedmetadata = tryPlay;
+            video.onloadeddata = () => {
+              tryPlay();
+              if (isCurrentEffect && mountedRef.current) setIsLoading(false);
+            };
+            video.oncanplay = () => {
+              tryPlay();
+              if (isCurrentEffect && mountedRef.current) setIsLoading(false);
+            };
+
             tryPlay();
-            // Once data is loaded, definitely hide loading
-            if (mountedRef.current) setIsLoading(false);
-          };
-          video.oncanplay = () => {
-            tryPlay();
-            if (mountedRef.current) setIsLoading(false);
-          };
+          }
 
-          // Also try playing immediately
-          tryPlay();
-        }
+          rafRef.current = requestAnimationFrame(tick);
+          console.log('[FaceAwayCamera] Camera successfully started');
+          return; // Success!
+        } catch (err: any) {
+          console.error(`[FaceAwayCamera] Attempt ${attempts} failed:`, {
+            name: err?.name,
+            message: err?.message,
+          });
 
-        // Start processing loop immediately — it will skip frames until video is ready
-        rafRef.current = requestAnimationFrame(tick);
-      } catch (err: any) {
-        console.error('Camera access completely denied in FaceAway:', err);
-        if (mountedRef.current) {
-          setIsLoading(false);
-          setCameraError(err?.message || 'Front camera access was blocked.');
+          if (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          } else if (isCurrentEffect && mountedRef.current) {
+            setIsLoading(false);
+            setCameraError(
+              err?.name === 'NotAllowedError'
+                ? 'Front camera permission denied. Please grant camera access in settings.'
+                : err?.name === 'NotReadableError'
+                ? 'Front camera is busy. Please try again.'
+                : err?.message || 'Front camera access failed.'
+            );
+          }
         }
       }
     };
@@ -229,9 +264,13 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
     initCamera();
 
     return () => {
+      isCurrentEffect = false;
       mountedRef.current = false;
       clearTimeout(forceLoadingTimeout);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -240,7 +279,7 @@ export const FaceAwayCameraView: React.FC<FaceAwayCameraViewProps> = ({ onComple
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode, onComplete]);
+  }, [facingMode]);
 
   return (
     <div className="w-full flex flex-col items-center select-none text-center">

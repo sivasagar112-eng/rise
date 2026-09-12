@@ -63,20 +63,26 @@ public class MainActivity extends BridgeActivity {
         boolean fromAlarmService = intent.getBooleanExtra("fromAlarmService", false);
         if (!fromAlarmService) return;
 
+        // Clear flag immediately so it is not processed twice
+        intent.removeExtra("fromAlarmService");
+
         String alarmId = intent.getStringExtra("alarmId");
         if (alarmId == null || alarmId.isEmpty()) return;
 
         Log.d(TAG, "Handling alarm intent for: " + alarmId);
 
         // Wait for the WebView to be ready, then inject JS to trigger the alarm
-        getBridge().getWebView().postDelayed(() -> {
-            String js = "javascript:window.dispatchEvent(new CustomEvent('nativeAlarmFired', { detail: { alarmId: '" + alarmId + "' } }));";
-            getBridge().getWebView().evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('nativeAlarmFired', { detail: { alarmId: '" + alarmId + "' } }));",
-                null
-            );
-            Log.d(TAG, "Dispatched nativeAlarmFired event for: " + alarmId);
-        }, 1500); // 1.5s delay to let WebView fully load
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().postDelayed(() -> {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('nativeAlarmFired', { detail: { alarmId: '" + alarmId + "' } }));",
+                        null
+                    );
+                    Log.d(TAG, "Dispatched nativeAlarmFired event for: " + alarmId);
+                }
+            }, 1000);
+        }
     }
 
     private void requestCameraFirst() {

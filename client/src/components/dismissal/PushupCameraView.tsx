@@ -42,6 +42,16 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const targetRepsRef = useRef(targetReps);
+  useEffect(() => {
+    targetRepsRef.current = targetReps;
+  }, [targetReps]);
+
   // Flip front/rear camera
   const handleToggleCamera = useCallback(() => {
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
@@ -49,28 +59,29 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
   // Manual rep increment fallback
   const handleManualRep = useCallback(() => {
-    if (repsRef.current < targetReps && !completedRef.current) {
+    if (repsRef.current < targetRepsRef.current && !completedRef.current) {
       repsRef.current += 1;
       setReps(repsRef.current);
       synth.playRepChirp();
 
-      if (repsRef.current >= targetReps) {
+      if (repsRef.current >= targetRepsRef.current) {
         completedRef.current = true;
         setIsComplete(true);
         setPhase('FINISHED');
-        setGuidance(`${targetReps} Pushups Completed!`);
+        setGuidance(`${targetRepsRef.current} Pushups Completed!`);
         setTimeout(() => {
           if (streamRef.current) {
             streamRef.current.getTracks().forEach((t) => t.stop());
             streamRef.current = null;
           }
-          onComplete();
+          onCompleteRef.current();
         }, 700);
       }
     }
-  }, [targetReps, onComplete]);
+  }, []);
 
   useEffect(() => {
+    let isCurrentEffect = true;
     mountedRef.current = true;
     calibrationFramesRef.current = 0;
     smoothedDiffRef.current = 0;
@@ -243,18 +254,18 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
       // VIBRATION REMOVED per user request
 
-      if (repsRef.current >= targetReps) {
+      if (repsRef.current >= targetRepsRef.current) {
         completedRef.current = true;
         phaseRef.current = 'FINISHED';
         setIsComplete(true);
         setPhase('FINISHED');
-        setGuidance(`${targetReps} Pushups Completed!`);
+        setGuidance(`${targetRepsRef.current} Pushups Completed!`);
         setTimeout(() => {
           if (streamRef.current) {
             streamRef.current.getTracks().forEach((t) => t.stop());
             streamRef.current = null;
           }
-          onComplete();
+          onCompleteRef.current();
         }, 700);
       } else {
         phaseRef.current = 'READY';
@@ -265,55 +276,97 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
     const initCamera = async () => {
       setCameraError(null);
-      try {
-        let stream: MediaStream;
+
+      // Clean up any existing stream before creating a new one
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      const attemptGetUserMedia = async (): Promise<MediaStream> => {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
+          return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
             audio: false,
           });
-        } catch {
-          stream = await navigator.mediaDevices.getUserMedia({
+        } catch (firstErr: any) {
+          console.warn('[PushupCamera] Primary camera constraints failed, attempting fallback:', firstErr?.name, firstErr?.message);
+          return await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false,
           });
         }
+      };
 
-        if (!mountedRef.current) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
+      while (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
+        attempts++;
+        try {
+          console.log(`[PushupCamera] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
+          const stream = await attemptGetUserMedia();
 
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (video) {
-          video.srcObject = stream;
-          video.setAttribute('playsinline', 'true');
-          video.setAttribute('webkit-playsinline', 'true');
-          video.muted = true;
+          if (!isCurrentEffect || !mountedRef.current) {
+            console.log('[PushupCamera] Effect invalidated during getUserMedia, stopping new tracks');
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
 
-          const tryPlay = () => {
-            if (!video) return;
-            const playPromise = video.play();
-            if (playPromise) {
-              playPromise.catch(() => {
-                setTimeout(() => {
-                  if (mountedRef.current && video.paused) video.play().catch(() => {});
-                }, 500);
-              });
-            }
-          };
+          streamRef.current = stream;
+          const video = videoRef.current;
+          if (video) {
+            video.srcObject = stream;
+            video.setAttribute('playsinline', 'true');
+            video.setAttribute('webkit-playsinline', 'true');
+            video.muted = true;
 
-          video.onloadedmetadata = tryPlay;
-          video.onloadeddata = tryPlay;
-          video.oncanplay = tryPlay;
-          tryPlay();
-        }
+            const tryPlay = () => {
+              if (!video || !isCurrentEffect) return;
+              const playPromise = video.play();
+              if (playPromise) {
+                playPromise.catch((e) => {
+                  console.warn('[PushupCamera] Play call deferred by browser/WebView:', e);
+                  setTimeout(() => {
+                    if (isCurrentEffect && mountedRef.current && video.paused) {
+                      video.play().catch(() => {});
+                    }
+                  }, 400);
+                });
+              }
+            };
 
-        rafRef.current = requestAnimationFrame(tick);
-      } catch (err: any) {
-        if (mountedRef.current) {
-          setCameraError(err?.message || 'Camera permission required for tracking.');
+            video.onloadedmetadata = tryPlay;
+            video.onloadeddata = tryPlay;
+            video.oncanplay = tryPlay;
+            tryPlay();
+          }
+
+          rafRef.current = requestAnimationFrame(tick);
+          console.log('[PushupCamera] Camera successfully started and bound to video');
+          return; // Success!
+        } catch (err: any) {
+          console.error(`[PushupCamera] Camera initialization failed (attempt ${attempts}):`, {
+            name: err?.name,
+            message: err?.message,
+            constraint: err?.constraint,
+          });
+
+          if (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
+            // Wait 500ms before next attempt (e.g. while lock screen wakes or app foregrounds)
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          } else if (isCurrentEffect && mountedRef.current) {
+            setCameraError(
+              err?.name === 'NotAllowedError'
+                ? 'Camera permission denied. Please grant camera access in app settings.'
+                : err?.name === 'NotReadableError'
+                ? 'Camera is in use by another app or lockscreen. Please try again.'
+                : err?.message || 'Camera failed to initialize.'
+            );
+          }
         }
       }
     };
@@ -321,8 +374,12 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     initCamera();
 
     return () => {
+      isCurrentEffect = false;
       mountedRef.current = false;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -331,7 +388,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode, onComplete, targetReps]);
+  }, [facingMode]);
 
   return (
     <div className="w-full flex flex-col items-center select-none text-center">

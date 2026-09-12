@@ -28,6 +28,10 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!StorageService.hasSeenOnboarding());
 
+  const handleAlarmTrigger = React.useCallback((triggeredAlarm: Alarm) => {
+    console.log(`[Rise Engine] Alarm triggered: ${triggeredAlarm.time}`);
+  }, []);
+
   // Alarm Scheduler Hook
   const {
     activeRingingAlarm,
@@ -35,9 +39,7 @@ export const App: React.FC = () => {
     completeDismissal,
   } = useAlarmScheduler({
     alarms,
-    onAlarmTrigger: (triggeredAlarm) => {
-      console.log(`[Rise Engine] Alarm triggered: ${triggeredAlarm.time}`);
-    },
+    onAlarmTrigger: handleAlarmTrigger,
   });
 
   // Sync with remote server on mount if logged in
@@ -105,7 +107,7 @@ export const App: React.FC = () => {
   };
 
   // Ringing & Dismissal Verification
-  const handleDismissVerified = async () => {
+  const handleDismissVerified = React.useCallback(async () => {
     const { alarm, responseTimeSeconds } = completeDismissal();
     if (!alarm) return;
 
@@ -131,7 +133,7 @@ export const App: React.FC = () => {
         success: true,
       }).catch(() => {});
     }
-  };
+  }, [completeDismissal]);
 
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none pb-28 transition-colors duration-200">

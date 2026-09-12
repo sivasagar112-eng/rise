@@ -13,17 +13,29 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
   const [alarmTriggerTimestamp, setAlarmTriggerTimestamp] = useState<number | null>(null);
   const lastCheckedMinuteRef = useRef<string>('');
   const preAlarmFiredRef = useRef<Set<string>>(new Set());
+  const activeAlarmIdRef = useRef<string | null>(null);
+
+  const onAlarmTriggerRef = useRef(onAlarmTrigger);
+  useEffect(() => {
+    onAlarmTriggerRef.current = onAlarmTrigger;
+  }, [onAlarmTrigger]);
 
   const triggerAlarm = useCallback((alarm: Alarm) => {
+    // Prevent duplicate triggers across ticker, native events, and notifications
+    if (activeAlarmIdRef.current === alarm.id) {
+      console.log(`[useAlarmScheduler] Alarm ${alarm.id} is already active, ignoring duplicate trigger`);
+      return;
+    }
+    activeAlarmIdRef.current = alarm.id;
     setActiveRingingAlarm(alarm);
     const now = performance.now();
     setAlarmTriggerTimestamp(now);
     synth.startAlarm(alarm.rampDuration);
-    onAlarmTrigger(alarm);
+    onAlarmTriggerRef.current(alarm);
 
     // Trigger high-priority heads-up banner notification on Android & iOS
     AlarmNotificationService.showRingingNotification(alarm);
-  }, [onAlarmTrigger]);
+  }, []);
 
   // Initialize native background AlarmNotificationService
   useEffect(() => {
@@ -123,6 +135,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       : 5;
 
     const dismissedAlarm = activeRingingAlarm;
+    activeAlarmIdRef.current = null;
     setActiveRingingAlarm(null);
     setAlarmTriggerTimestamp(null);
 

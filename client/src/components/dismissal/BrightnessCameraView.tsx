@@ -20,7 +20,13 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
   const [brightnessProgress, setBrightnessProgress] = useState(0);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
+  const onCompleteRef = useRef(onComplete);
   useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    let isCurrentEffect = true;
     let mounted = true;
 
     const tick = () => {
@@ -58,7 +64,7 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
             completedRef.current = true;
             setTimeout(() => {
               streamRef.current?.getTracks().forEach(t => t.stop());
-              onComplete();
+              onCompleteRef.current();
             }, 500);
             return;
           }
@@ -68,41 +74,79 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
     };
 
     const initCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: false,
-        });
-        if (!mounted) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch(e => console.warn('Video play error:', e));
-          };
-        }
-        rafRef.current = requestAnimationFrame(tick);
-      } catch (err) {
-        console.warn('Initial camera constraint failed in BrightnessCameraView, trying fallback:', err);
+      // Clean up any existing stream before creating a new one
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      const attemptGetUserMedia = async (): Promise<MediaStream> => {
         try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          if (!mounted) {
-            fallbackStream.getTracks().forEach(t => t.stop());
+          return await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false,
+          });
+        } catch {
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      };
+
+      while (attempts < maxAttempts && isCurrentEffect && mounted) {
+        attempts++;
+        try {
+          console.log(`[BrightnessCamera] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
+          const stream = await attemptGetUserMedia();
+
+          if (!isCurrentEffect || !mounted) {
+            console.log('[BrightnessCamera] Effect cancelled during getUserMedia, stopping stream');
+            stream.getTracks().forEach(t => t.stop());
             return;
           }
-          streamRef.current = fallbackStream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = fallbackStream;
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play().catch(e => console.warn('Fallback play error:', e));
+
+          streamRef.current = stream;
+          const video = videoRef.current;
+          if (video) {
+            video.srcObject = stream;
+            video.setAttribute('playsinline', 'true');
+            video.setAttribute('webkit-playsinline', 'true');
+            video.muted = true;
+
+            const tryPlay = () => {
+              if (!video || !isCurrentEffect) return;
+              video.play().catch(e => {
+                console.warn('[BrightnessCamera] Video play deferred:', e);
+                setTimeout(() => {
+                  if (isCurrentEffect && mounted && video.paused) {
+                    video.play().catch(() => {});
+                  }
+                }, 400);
+              });
             };
+
+            video.onloadedmetadata = tryPlay;
+            video.onloadeddata = tryPlay;
+            video.oncanplay = tryPlay;
+            tryPlay();
           }
+
           rafRef.current = requestAnimationFrame(tick);
-        } catch (fallbackErr) {
-          console.error('Camera access completely denied in BrightnessCameraView:', fallbackErr);
+          console.log('[BrightnessCamera] Camera successfully started');
+          return;
+        } catch (err: any) {
+          console.error(`[BrightnessCamera] Camera init attempt ${attempts} failed:`, {
+            name: err?.name,
+            message: err?.message,
+          });
+
+          if (attempts < maxAttempts && isCurrentEffect && mounted) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
       }
     };
@@ -110,6 +154,7 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
     initCamera();
 
     return () => {
+      isCurrentEffect = false;
       mounted = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (streamRef.current) {

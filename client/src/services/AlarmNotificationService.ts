@@ -92,6 +92,10 @@ export class AlarmNotificationService {
 
       // 5. Listen for notification firing while app is open/minimized
       LocalNotifications.addListener('localNotificationReceived', (notification) => {
+        // Critical: Do NOT treat the ringing heads-up banner as a new alarm trigger!
+        if (notification.id === 888888 || notification.extra?.isRinging) {
+          return;
+        }
         const alarmId = notification.extra?.alarmId;
         if (alarmId) {
           onAlarmTrigger(alarmId);

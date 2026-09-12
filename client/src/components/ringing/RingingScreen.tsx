@@ -13,13 +13,10 @@ interface RingingScreenProps {
   onDismissVerified: () => void;
 }
 
-export const RingingScreen: React.FC<RingingScreenProps> = ({
-  alarm,
-  onDismissVerified,
-}) => {
+const VolumeProgressBar: React.FC = () => {
   const [volumeProgress, setVolumeProgress] = useState<number>(0);
 
-  // Track volume ramp up
+  // Track volume ramp up in isolated component so RingingScreen and camera views do NOT re-render
   useEffect(() => {
     const timer = setInterval(() => {
       setVolumeProgress(synth.getRampProgress());
@@ -27,9 +24,29 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const handleAllTasksDone = () => {
+  return (
+    <div className="w-full max-w-xs flex items-center space-x-2 px-3 py-2 rounded-xl border border-theme-border bg-theme-card mb-2 shadow-sm">
+      <Volume2 size={15} className="text-theme-subtext" />
+      <div className="flex-1 h-2 bg-theme-border rounded-full overflow-hidden">
+        <div
+          className="h-full bg-blue-500 transition-all duration-300 rounded-full"
+          style={{ width: `${volumeProgress}%` }}
+        />
+      </div>
+      <span className="text-xs font-medium font-tabular text-theme-subtext w-9 text-right">
+        {volumeProgress}%
+      </span>
+    </div>
+  );
+};
+
+export const RingingScreen: React.FC<RingingScreenProps> = ({
+  alarm,
+  onDismissVerified,
+}) => {
+  const handleAllTasksDone = React.useCallback(() => {
     onDismissVerified();
-  };
+  }, [onDismissVerified]);
 
   return (
     <div className="fixed inset-0 z-50 bg-theme-bg text-theme-text flex flex-col justify-between p-6 animate-fade-in overflow-y-auto">
@@ -47,19 +64,8 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
           {alarm.label}
         </div>
 
-        {/* Volume Ramp Progress Bar */}
-        <div className="w-full max-w-xs flex items-center space-x-2 px-3 py-2 rounded-xl border border-theme-border bg-theme-card mb-2 shadow-sm">
-          <Volume2 size={15} className="text-theme-subtext" />
-          <div className="flex-1 h-2 bg-theme-border rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 transition-all duration-300 rounded-full"
-              style={{ width: `${volumeProgress}%` }}
-            />
-          </div>
-          <span className="text-xs font-medium font-tabular text-theme-subtext w-9 text-right">
-            {volumeProgress}%
-          </span>
-        </div>
+        {/* Volume Ramp Progress Bar (Isolated to prevent camera re-renders) */}
+        <VolumeProgressBar />
       </div>
 
       {/* Center Action Area: Interactive Camera / Pushup / Math Task */}
