@@ -143,13 +143,15 @@ export class AlarmNotificationService {
         notifications: [
           {
             id: 888888,
-            title: "Time's up",
-            body: `Alarm • ${alarm.time} • ${taskText}`,
+            title: "⏰ Time's up",
+            body: `Rise • ${alarm.time} • ${taskText}`,
             schedule: { at: new Date(Date.now() + 50) },
             channelId: CHANNEL_ID,
             actionTypeId: 'RISE_ALARM_ACTIONS',
+            smallIcon: 'ic_alarm_notification',
+            iconColor: '#3B82F6',
             ongoing: true,
-            autoCancel: false,
+            autoCancel: true,
             extra: {
               alarmId: alarm.id,
               isRinging: true,
@@ -182,10 +184,17 @@ export class AlarmNotificationService {
   public static async cancelRingingNotification(): Promise<void> {
     try {
       await LocalNotifications.cancel({
-        notifications: [{ id: 888888 }],
+        notifications: [{ id: 888888 }, { id: 1001 }],
       });
 
-      // Also stop the native foreground AlarmService
+      // Clear all delivered notifications so nothing lingers in status bar
+      try {
+        await LocalNotifications.removeAllDeliveredNotifications();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] removeAllDeliveredNotifications error:', e);
+      }
+
+      // Also stop the native foreground AlarmService (removes foreground notification)
       if (Capacitor.isNativePlatform()) {
         try {
           await AlarmSchedulerNative.stopRinging();

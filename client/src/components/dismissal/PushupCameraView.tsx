@@ -55,6 +55,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   // Real-time Debug HUD showing Shoulder, Chest, Hip Y values & displacement
   const [hudData, setHudData] = useState({
     tracking: false,
+    isOffline: false,
     sY: 0,
     cY: 0,
     hY: 0,
@@ -130,12 +131,12 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     }
   }, []);
 
-  // Load MoveNet
+  // Load Detector (MoveNet or Offline Optical Tracker)
   useEffect(() => {
     let mounted = true;
     const loadModel = async () => {
       try {
-        console.log('[PushupTracker] Initializing MoveNet detector...');
+        console.log('[PushupTracker] Initializing detector...');
         await PoseDetectionEngine.getDetector();
         if (mounted) {
           setModelReady(true);
@@ -144,8 +145,13 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           setGuidance('Position phone so shoulders, chest, and hips are visible.');
         }
       } catch (err) {
-        console.error('[PushupTracker] Failed to load model:', err);
-        if (mounted) setGuidance('AI model error. Use manual count.');
+        console.warn('[PushupTracker] MoveNet offline fallback active:', err);
+        if (mounted) {
+          setModelReady(true);
+          phaseRef.current = 'WAITING_FOR_BODY';
+          setPhase('WAITING_FOR_BODY');
+          setGuidance('Offline AI active. Position phone so body is visible.');
+        }
       }
     };
     loadModel();
@@ -255,6 +261,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             // Update real-time HUD
             setHudData({
               tracking: true,
+              isOffline: Boolean(result.isOffline),
               sY: Math.round(sY),
               cY: Math.round(cY),
               hY: Math.round(hY),
@@ -512,12 +519,14 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               <FlipHorizontal size={16} />
             </button>
             <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
-              {phase === 'LOADING_MODEL' ? (
+              {phase === 'LOADING_MODEL' && !modelReady ? (
                 <span className="flex items-center gap-1">
                   <Loader2 size={10} className="animate-spin" /> LOADING AI...
                 </span>
               ) : hudData.tracking ? (
-                <span className="text-green-400">BODY TRACKED ✓</span>
+                <span className={hudData.isOffline ? 'text-amber-300 font-extrabold' : 'text-green-400'}>
+                  {hudData.isOffline ? '⚡ OFFLINE AI ACTIVE' : 'BODY TRACKED ✓'}
+                </span>
               ) : (
                 <span className="text-amber-300">POSITION BODY</span>
               )}
@@ -573,7 +582,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       {/* Simple Debug HUD: Shoulder / Chest / Hip Y-values */}
       <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
         <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
-          <span>Torso Y-Movement Tracker</span>
+          <span>Torso Y-Movement Tracker {hudData.isOffline ? '(⚡ 100% Offline Vision)' : ''}</span>
           <span className="text-green-400 font-normal">Target: ≥{hudData.targetDrop}px</span>
         </div>
         <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">

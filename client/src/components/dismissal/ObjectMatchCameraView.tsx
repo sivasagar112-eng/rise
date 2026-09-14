@@ -43,23 +43,28 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+
   // 1. Load AI model via preloader (near-instant if already preloaded)
   useEffect(() => {
     let mounted = true;
     const loadAi = async () => {
       try {
         console.log('[ObjectMatch] Loading COCO-SSD via ModelPreloader...');
-        const model = await ModelPreloader.getCocoSsd();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Network offline or timeout')), 2500)
+        );
+        const model = (await Promise.race([ModelPreloader.getCocoSsd(), timeoutPromise])) as any;
         if (mounted) {
           modelRef.current = model;
           setIsAiReady(true);
           console.log('[ObjectMatch] COCO-SSD model ready');
         }
       } catch (aiErr: any) {
-        console.error('[ObjectMatch] AI Model failed to load:', aiErr);
+        console.warn('[ObjectMatch] AI Model unavailable offline:', aiErr);
         if (mounted) {
-          setErrorMessage(aiErr.message || 'Failed to load AI model weights.');
-          setPhase('ERROR');
+          setIsOfflineMode(true);
+          setIsAiReady(true);
         }
       }
     };
@@ -326,9 +331,11 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
           <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 rounded-lg">
             {!isAiReady
               ? <span className="flex items-center justify-center gap-1"><Loader2 size={12} className="animate-spin" /> AI warming up...</span>
-              : detectedLabel
-                ? `Seeing: ${detectedLabel}`
-                : `Looking for a ${randomTarget}…`}
+              : isOfflineMode
+                ? `⚡ Offline Mode: Scan ${randomTarget}`
+                : detectedLabel
+                  ? `Seeing: ${detectedLabel}`
+                  : `Looking for a ${randomTarget}…`}
           </div>
         </div>
 
@@ -357,6 +364,30 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
           />
         </div>
       </div>
+
+      {/* Offline Manual Verification Fallback */}
+      {isOfflineMode && (
+        <div className="flex flex-col items-center space-y-1.5 mt-2">
+          <div className="text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+            ⚡ OFFLINE MODE (Data is Off)
+          </div>
+          <button
+            onClick={() => {
+              if (!completedRef.current) {
+                completedRef.current = true;
+                setPhase('DETECTED');
+                setTimeout(() => {
+                  streamRef.current?.getTracks().forEach((t) => t.stop());
+                  onCompleteRef.current();
+                }, 800);
+              }
+            }}
+            className="text-xs font-bold py-2 px-4 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all flex items-center space-x-2 shadow-sm"
+          >
+            <span>Confirm {randomTarget} (Offline)</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

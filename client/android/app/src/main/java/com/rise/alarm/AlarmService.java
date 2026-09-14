@@ -101,7 +101,7 @@ public class AlarmService extends Service {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("⏰ Rise — " + alarmTime)
             .setContentText("Wake up! Complete: " + taskText)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_alarm_notification)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -240,6 +240,15 @@ public class AlarmService extends Service {
      * Called from AlarmSchedulerPlugin when the user completes the challenge.
      */
     public static void stopAlarmService(Context context) {
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.cancel(NOTIFICATION_ID);
+                nm.cancelAll();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error cancelling notification before stopService", e);
+        }
         Intent intent = new Intent(context, AlarmService.class);
         context.stopService(intent);
     }
@@ -248,6 +257,22 @@ public class AlarmService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "AlarmService destroyed");
+
+        // Remove foreground notification immediately so it does not stay in notification bar
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE);
+            } else {
+                stopForeground(true);
+            }
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.cancel(NOTIFICATION_ID);
+                nm.cancelAll();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error removing foreground notification", e);
+        }
 
         if (volumeHandler != null && volumeRunnable != null) {
             volumeHandler.removeCallbacks(volumeRunnable);

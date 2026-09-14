@@ -15,6 +15,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
   const lastCheckedMinuteRef = useRef<string>('');
   const preAlarmFiredRef = useRef<Set<string>>(new Set());
   const activeAlarmIdRef = useRef<string | null>(null);
+  const recentlyDismissedRef = useRef<Map<string, number>>(new Map());
 
   const onAlarmTriggerRef = useRef(onAlarmTrigger);
   useEffect(() => {
@@ -27,6 +28,20 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       console.log(`[useAlarmScheduler] Alarm ${alarm.id} is already active, ignoring duplicate trigger`);
       return;
     }
+
+    // Guard: Prevent re-triggering if the user ALREADY completed the task within the last 5 minutes!
+    const dismissedAtMem = recentlyDismissedRef.current.get(alarm.id) || 0;
+    let dismissedAtStorage = 0;
+    try {
+      const stored = localStorage.getItem(`rise_dismissed_${alarm.id}`);
+      if (stored) dismissedAtStorage = Number(stored);
+    } catch {}
+    const dismissedAt = Math.max(dismissedAtMem, dismissedAtStorage);
+    if (dismissedAt && Date.now() - dismissedAt < 5 * 60 * 1000) {
+      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was already completed within the last 5 minutes. Ignoring.`);
+      return;
+    }
+
     activeAlarmIdRef.current = alarm.id;
     setActiveRingingAlarm(alarm);
     const now = performance.now();
@@ -149,6 +164,12 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       : 5;
 
     const dismissedAlarm = activeRingingAlarm;
+    if (dismissedAlarm) {
+      recentlyDismissedRef.current.set(dismissedAlarm.id, Date.now());
+      try {
+        localStorage.setItem(`rise_dismissed_${dismissedAlarm.id}`, String(Date.now()));
+      } catch {}
+    }
     activeAlarmIdRef.current = null;
     setActiveRingingAlarm(null);
     setAlarmTriggerTimestamp(null);

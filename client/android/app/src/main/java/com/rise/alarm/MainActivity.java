@@ -63,11 +63,12 @@ public class MainActivity extends BridgeActivity {
         boolean fromAlarmService = intent.getBooleanExtra("fromAlarmService", false);
         if (!fromAlarmService) return;
 
-        // Clear flag immediately so it is not processed twice
-        intent.removeExtra("fromAlarmService");
-
         String alarmId = intent.getStringExtra("alarmId");
         if (alarmId == null || alarmId.isEmpty()) return;
+
+        // Clear flag and alarmId immediately so it is not processed twice
+        intent.removeExtra("fromAlarmService");
+        intent.removeExtra("alarmId");
 
         Log.d(TAG, "Handling alarm intent for: " + alarmId);
 
