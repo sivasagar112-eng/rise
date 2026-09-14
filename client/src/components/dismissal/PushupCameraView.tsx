@@ -13,8 +13,9 @@ type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 
 // Pushup Movement Thresholds
 const MIN_DROP_PX = 20;            // Minimum vertical displacement (pixels) required for shoulder/chest/hip
 const ALIGNMENT_TOLERANCE_PX = 40; // Shoulder, chest, and hip must stay roughly aligned within this tolerance
-const REP_COOLDOWN_MS = 800;       // Cooldown between reps
-const STABLE_FRAMES_GATE = 2;      // Frames required to confirm down/up states
+const REP_COOLDOWN_MS = 1200;      // Cooldown between reps (was 800, increased to prevent double counts)
+const STABLE_FRAMES_GATE = 4;      // Frames required to confirm down/up states (was 2, increased for accuracy)
+const EMA_ALPHA = 0.4;             // EMA smoothing factor for Y-position tracking (lower = smoother)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,
@@ -42,6 +43,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
   // Throttled console log ref
   const lastLogMsRef = useRef<number>(0);
+
+  // EMA-smoothed Y positions for noise reduction
+  const smoothSYRef = useRef<number | null>(null);
+  const smoothCYRef = useRef<number | null>(null);
+  const smoothHYRef = useRef<number | null>(null);
 
   // UI State
   const [reps, setReps] = useState(0);
@@ -169,6 +175,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     baseShoulderYRef.current = null;
     baseChestYRef.current = null;
     baseHipYRef.current = null;
+    smoothSYRef.current = null;
+    smoothCYRef.current = null;
+    smoothHYRef.current = null;
     maxDropSeenRef.current = 0;
     stableDownCountRef.current = 0;
     stableUpCountRef.current = 0;
@@ -195,17 +204,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
           if (result && isCurrentEffect && mountedRef.current) {
-            // Draw skeleton & highlight Shoulder, Chest, Hip markers
-            PoseDetectionEngine.drawPose(
-              ctx,
-              result.keypoints,
-              canvas.width,
-              canvas.height,
-              video.videoWidth,
-              video.videoHeight,
-              result.isUpright,
-              result.isHorizontal
-            );
+            // Skeleton overlay removed — pose detection still runs but nothing is drawn on screen
 
             const shoulder = result.shoulder;
             const chest = result.chest;
@@ -225,10 +224,19 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               return;
             }
 
-            // Extract Y-axis positions (pixels from top of image)
-            const sY = shoulder!.y;
-            const cY = chest!.y;
-            const hY = hip!.y;
+            // Extract Y-axis positions (pixels from top of image) and apply EMA smoothing
+            const rawSY = shoulder!.y;
+            const rawCY = chest!.y;
+            const rawHY = hip!.y;
+
+            // EMA smoothing to reduce frame-to-frame noise/jitter
+            smoothSYRef.current = smoothSYRef.current === null ? rawSY : smoothSYRef.current * (1 - EMA_ALPHA) + rawSY * EMA_ALPHA;
+            smoothCYRef.current = smoothCYRef.current === null ? rawCY : smoothCYRef.current * (1 - EMA_ALPHA) + rawCY * EMA_ALPHA;
+            smoothHYRef.current = smoothHYRef.current === null ? rawHY : smoothHYRef.current * (1 - EMA_ALPHA) + rawHY * EMA_ALPHA;
+
+            const sY = smoothSYRef.current;
+            const cY = smoothCYRef.current;
+            const hY = smoothHYRef.current;
 
             // Dynamic minimum movement distance based on video resolution
             const vHeight = video.videoHeight || 480;
@@ -286,12 +294,12 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             // ==============================================================
 
             if (phaseRef.current === 'UP') {
-              // Descent Detection: Shoulder and chest both start moving down together
-              if (sDrop >= 8 && cDrop >= 6) {
+              // Descent Detection: Shoulder, chest AND hip must all start moving down together
+              if (sDrop >= 10 && cDrop >= 8 && hDrop >= 4) {
                 phaseRef.current = 'GOING_DOWN';
                 setPhase('GOING_DOWN');
                 setGuidance('Lowering down... keep going!');
-                maxDropSeenRef.current = Math.max(sDrop, cDrop);
+                maxDropSeenRef.current = Math.max(sDrop, cDrop, hDrop);
               }
             } else if (phaseRef.current === 'GOING_DOWN') {
               maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
@@ -499,11 +507,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               style={{ pointerEvents: 'none' }}
               className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
             />
-            {/* Overlay Canvas displaying Shoulder, Chest, and Hip tracking */}
+            {/* Overlay canvas hidden — skeleton drawing removed */}
             <canvas
               ref={overlayCanvasRef}
               className={`absolute inset-0 w-full h-full pointer-events-none ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-              style={{ objectFit: 'cover' }}
+              style={{ objectFit: 'cover', display: 'none' }}
             />
           </>
         )}

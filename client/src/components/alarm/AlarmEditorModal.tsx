@@ -122,7 +122,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
       rampDuration,
       preAlarmEnabled: preAlarmMinutes > 0,
       preAlarmMinutes,
-      isEnabled: true,
+      isEnabled: alarm ? alarm.isEnabled : true,
     };
     onSave(updated);
   };

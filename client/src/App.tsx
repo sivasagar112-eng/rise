@@ -80,8 +80,11 @@ export const App: React.FC = () => {
   };
 
   const handleSaveAlarm = async (alarm: Alarm) => {
-    const updated = StorageService.addOrUpdateAlarm(alarm);
-    setAlarms(updated);
+    // Update localStorage first
+    const updatedAlarms = StorageService.addOrUpdateAlarm(alarm);
+    
+    // Force React state update with the definitive localStorage version
+    setAlarms([...updatedAlarms]);
     setIsEditorOpen(false);
     setEditingAlarm(null);
 
@@ -129,6 +132,22 @@ export const App: React.FC = () => {
 
     StorageService.addWakeLog(logItem);
 
+    // Bug #4 fix: Handle one-time vs repeating alarms after dismissal
+    const isOneTimeAlarm = !alarm.daysOfWeek || alarm.daysOfWeek.length === 0;
+    if (isOneTimeAlarm) {
+      // One-time alarm: disable it after it has been dismissed
+      const updatedAlarms = alarms.map((a) =>
+        a.id === alarm.id ? { ...a, isEnabled: false } : a
+      );
+      setAlarms(updatedAlarms);
+      StorageService.saveAlarms(updatedAlarms);
+    } else {
+      // Repeating alarm: keep it enabled and re-sync to schedule next occurrence
+      // Force re-sync by creating a new array reference
+      const currentAlarms = StorageService.getAlarms();
+      setAlarms([...currentAlarms]);
+    }
+
     const user = StorageService.getUser();
     if (user?.token) {
       api.recordDismissal({
@@ -139,7 +158,7 @@ export const App: React.FC = () => {
         success: true,
       }).catch(() => {});
     }
-  }, [completeDismissal]);
+  }, [completeDismissal, alarms]);
 
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none pb-28 transition-colors duration-200">
@@ -226,6 +245,7 @@ export const App: React.FC = () => {
       {/* Alarm Editor Modal */}
       {isEditorOpen && (
         <AlarmEditorModal
+          key={editingAlarm ? editingAlarm.id : 'new-alarm'}
           alarm={editingAlarm}
           onSave={handleSaveAlarm}
           onDelete={handleDeleteAlarm}
