@@ -91,6 +91,9 @@ public class AlarmTriggerHandler {
 
         Log.d(TAG, "handleAlarmTrigger: alarmId=" + alarmId + ", time=" + alarmTime + ", dismissalType=" + dismissalType + ", pushupTarget=" + pushupTarget);
 
+        // Store pending alarm data into plugin so WebView can immediately pull it on cold start
+        AlarmSchedulerPlugin.setPendingAlarm(alarmId, alarmTime, alarmLabel, dismissalType, pushupTarget, rampDuration);
+
         // 1. Hold partial wake lock from trigger until task Activity reports it is resumed
         acquireWakeLock(context);
 

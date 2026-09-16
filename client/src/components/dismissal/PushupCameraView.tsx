@@ -14,8 +14,8 @@ type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 
 // Pushup Movement Thresholds
 const MIN_DROP_PX = 20;            // Minimum vertical displacement (pixels) required for shoulder/chest/hip
 const ALIGNMENT_TOLERANCE_PX = 40; // Shoulder, chest, and hip must stay roughly aligned within this tolerance
-const REP_COOLDOWN_MS = 1200;      // Cooldown between reps (was 800, increased to prevent double counts)
-const STABLE_FRAMES_GATE = 4;      // Frames required to confirm down/up states (was 2, increased for accuracy)
+const REP_COOLDOWN_MS = 1000;      // Cooldown between reps
+const STABLE_FRAMES_GATE = 2;      // Frames required to confirm down/up states (2 frames ~100-130ms for responsive mobile tracking)
 const EMA_ALPHA = 0.4;             // EMA smoothing factor for Y-position tracking (lower = smoother)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
@@ -58,6 +58,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(PoseDetectionEngine.isReady());
+  const modelReadyRef = useRef(PoseDetectionEngine.isReady());
+  const phaseStartMsRef = useRef<number>(performance.now());
   const isOnline = useNetworkStatus();
 
   // Real-time Debug HUD showing Shoulder, Chest, Hip Y values & displacement
@@ -139,6 +141,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     }
   }, []);
 
+  const countRepRef = useRef(countRep);
+  useEffect(() => {
+    countRepRef.current = countRep;
+  }, [countRep]);
+
   // Load Detector (MoveNet or Offline Optical Tracker)
   useEffect(() => {
     let mounted = true;
@@ -147,6 +154,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         console.log('[PushupTracker] Initializing detector...');
         await PoseDetectionEngine.getDetector();
         if (mounted) {
+          modelReadyRef.current = true;
           setModelReady(true);
           phaseRef.current = 'WAITING_FOR_BODY';
           setPhase('WAITING_FOR_BODY');
@@ -155,6 +163,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       } catch (err) {
         console.warn('[PushupTracker] MoveNet offline fallback active:', err);
         if (mounted) {
+          modelReadyRef.current = true;
           setModelReady(true);
           phaseRef.current = 'WAITING_FOR_BODY';
           setPhase('WAITING_FOR_BODY');
@@ -194,7 +203,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         video.play().catch(() => {});
       }
 
-      if (video && canvas && video.readyState >= 2 && modelReady) {
+      if (video && canvas && video.readyState >= 2 && modelReadyRef.current) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
@@ -250,10 +259,13 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               baseChestYRef.current = cY;
               baseHipYRef.current = hY;
             } else if (phaseRef.current === 'UP' || phaseRef.current === 'WAITING_FOR_BODY') {
-              // Slowly smooth baseline when at the top
-              baseShoulderYRef.current = baseShoulderYRef.current * 0.9 + sY * 0.1;
-              baseChestYRef.current = baseChestYRef.current * 0.9 + cY * 0.1;
-              baseHipYRef.current = baseHipYRef.current * 0.9 + hY * 0.1;
+              // Only smooth baseline when stationary in UP position (don't pull down during descent)
+              const diffS = Math.abs(sY - baseShoulderYRef.current);
+              if (diffS < 6) {
+                baseShoulderYRef.current = baseShoulderYRef.current * 0.92 + sY * 0.08;
+                baseChestYRef.current = baseChestYRef.current * 0.92 + cY * 0.08;
+                baseHipYRef.current = baseHipYRef.current * 0.92 + hY * 0.08;
+              }
 
               if (phaseRef.current === 'WAITING_FOR_BODY') {
                 phaseRef.current = 'UP';
@@ -299,6 +311,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               // Descent Detection: Shoulder, chest AND hip must all start moving down together
               if (sDrop >= 10 && cDrop >= 8 && hDrop >= 4) {
                 phaseRef.current = 'GOING_DOWN';
+                phaseStartMsRef.current = now;
                 setPhase('GOING_DOWN');
                 setGuidance('Lowering down... keep going!');
                 maxDropSeenRef.current = Math.max(sDrop, cDrop, hDrop);
@@ -322,6 +335,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 stableDownCountRef.current++;
                 if (stableDownCountRef.current >= STABLE_FRAMES_GATE) {
                   phaseRef.current = 'DOWN';
+                  phaseStartMsRef.current = now;
                   setPhase('DOWN');
                   setGuidance('Bottom reached! Now push back UP!');
                   stableUpCountRef.current = 0;
@@ -343,17 +357,21 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               // Start pushing up: body starts ascending
               if (sDrop < maxDropSeenRef.current - 6) {
                 phaseRef.current = 'GOING_UP';
+                phaseStartMsRef.current = now;
                 setPhase('GOING_UP');
                 setGuidance('Pushing up — return to top!');
                 stableUpCountRef.current = 0;
+              } else if (now - phaseStartMsRef.current > 4000) {
+                setGuidance('Bottom reached! Push your body back UP!');
               }
             } else if (phaseRef.current === 'GOING_UP') {
               // 3. A valid pushup "UP" position:
-              // - Shoulder, chest, and hip all move back UP together to starting height
+              // - Shoulder and chest return to starting height (within 45% of peak drop or <= 16px)
+              // - Hip returns towards top
               const allMovedBackUp =
-                sDrop <= Math.max(8, maxDropSeenRef.current * 0.35) &&
-                cDrop <= Math.max(8, maxDropSeenRef.current * 0.35) &&
-                hDrop <= Math.max(8, maxDropSeenRef.current * 0.35);
+                sDrop <= Math.max(16, maxDropSeenRef.current * 0.45) &&
+                cDrop <= Math.max(16, maxDropSeenRef.current * 0.45) &&
+                hDrop <= Math.max(20, maxDropSeenRef.current * 0.60);
 
               if (allMovedBackUp) {
                 stableUpCountRef.current++;
@@ -367,11 +385,28 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                     baseShoulderYRef.current = sY;
                     baseChestYRef.current = cY;
                     baseHipYRef.current = hY;
-                    countRep();
+                    countRepRef.current();
                   }
                 }
               } else {
                 stableUpCountRef.current = 0;
+              }
+
+              // Safety timeout recovery if user pushed up but is hovering or landmark slightly shifted
+              if (now - phaseStartMsRef.current > 3500) {
+                if (sDrop <= maxDropSeenRef.current * 0.55 && (now - lastRepMsRef.current >= REP_COOLDOWN_MS)) {
+                  lastRepMsRef.current = now;
+                  stableDownCountRef.current = 0;
+                  stableUpCountRef.current = 0;
+                  baseShoulderYRef.current = sY;
+                  baseChestYRef.current = cY;
+                  baseHipYRef.current = hY;
+                  countRepRef.current();
+                } else {
+                  phaseRef.current = 'UP';
+                  setPhase('UP');
+                  setGuidance('Push all the way up to complete the rep.');
+                }
               }
             }
           }
@@ -455,7 +490,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode, modelReady, countRep]);
+  }, [facingMode]);
 
   return (
     <div className="w-full flex flex-col items-center select-none text-center">

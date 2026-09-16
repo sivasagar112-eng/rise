@@ -29,6 +29,32 @@ public class AlarmSchedulerPlugin extends Plugin {
     private static final String PREFS_NAME = "rise_alarms";
     private static final String PREFS_KEY = "scheduled_alarms";
 
+    private static JSObject pendingAlarmData = null;
+
+    public static synchronized void setPendingAlarm(
+        String alarmId, String alarmTime, String alarmLabel,
+        String dismissalType, int pushupTarget, int rampDuration
+    ) {
+        JSObject obj = new JSObject();
+        obj.put("alarmId", alarmId);
+        obj.put("alarmTime", alarmTime);
+        obj.put("alarmLabel", alarmLabel);
+        obj.put("dismissalType", dismissalType);
+        obj.put("pushupTarget", pushupTarget);
+        obj.put("rampDuration", rampDuration);
+        pendingAlarmData = obj;
+        Log.d(TAG, "Saved pendingAlarmData for: " + alarmId);
+    }
+
+    public static synchronized JSObject getPendingAlarmData() {
+        return pendingAlarmData;
+    }
+
+    public static synchronized void clearPendingAlarmData() {
+        pendingAlarmData = null;
+        Log.d(TAG, "Cleared pendingAlarmData");
+    }
+
     /**
      * Schedule an exact alarm using AlarmManager.setAlarmClock()
      * Called from TypeScript: AlarmScheduler.scheduleExact({ alarmId, triggerMs, ... })
@@ -214,6 +240,35 @@ public class AlarmSchedulerPlugin extends Plugin {
         } else {
             result.put("canSchedule", true);
         }
+        call.resolve(result);
+    }
+
+    /**
+     * Retrieve any pending alarm that caused the app to launch or ring
+     */
+    @PluginMethod
+    public void getPendingAlarm(PluginCall call) {
+        JSObject result = new JSObject();
+        synchronized (AlarmSchedulerPlugin.class) {
+            if (pendingAlarmData != null) {
+                result.put("alarm", pendingAlarmData);
+            } else {
+                result.put("alarm", JSObject.NULL);
+            }
+        }
+        call.resolve(result);
+    }
+
+    /**
+     * Clear the pending alarm once processed or dismissed
+     */
+    @PluginMethod
+    public void clearPendingAlarm(PluginCall call) {
+        synchronized (AlarmSchedulerPlugin.class) {
+            pendingAlarmData = null;
+        }
+        JSObject result = new JSObject();
+        result.put("success", true);
         call.resolve(result);
     }
 

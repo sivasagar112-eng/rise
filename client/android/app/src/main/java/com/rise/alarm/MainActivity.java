@@ -153,6 +153,9 @@ public class MainActivity extends BridgeActivity {
         final int finalPushupTarget = pushupTarget;
         final int finalRampDuration = rampDuration;
 
+        // Store into AlarmSchedulerPlugin so TypeScript can synchronously/asynchronously query it upon startup
+        AlarmSchedulerPlugin.setPendingAlarm(finalAlarmId, finalAlarmTime, finalAlarmLabel, finalDismissalType, finalPushupTarget, finalRampDuration);
+
         Runnable dispatchRunnable = () -> {
             if (getBridge() != null && getBridge().getWebView() != null) {
                 String js = String.format(
@@ -174,8 +177,10 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null && getBridge().getWebView() != null) {
             // Immediate dispatch if app was already running in foreground
             dispatchRunnable.run();
-            // Also postDelayed as insurance in case WebView was loading or transitioning
-            getBridge().getWebView().postDelayed(dispatchRunnable, 600);
+            // Staggered retries across cold-start window (400ms, 1000ms, 2000ms, 3000ms)
+            for (int delayMs : new int[]{400, 1000, 2000, 3000}) {
+                getBridge().getWebView().postDelayed(dispatchRunnable, delayMs);
+            }
         }
     }
 

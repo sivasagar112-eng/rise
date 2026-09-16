@@ -30,7 +30,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       return;
     }
 
-    // Guard: Prevent re-triggering if the user ALREADY completed the task within the last 5 minutes!
+    // Guard: Prevent rapid duplicate triggers (within 8 seconds) from race conditions
     const dismissedAtMem = recentlyDismissedRef.current.get(alarm.id) || 0;
     let dismissedAtStorage = 0;
     try {
@@ -38,8 +38,8 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       if (stored) dismissedAtStorage = Number(stored);
     } catch {}
     const dismissedAt = Math.max(dismissedAtMem, dismissedAtStorage);
-    if (dismissedAt && Date.now() - dismissedAt < 5 * 60 * 1000) {
-      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was already completed within the last 5 minutes. Ignoring.`);
+    if (dismissedAt && Date.now() - dismissedAt < 8 * 1000) {
+      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was just dismissed within 8 seconds. Ignoring duplicate.`);
       return;
     }
 
@@ -192,13 +192,14 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
   const completeDismissal = useCallback(() => {
     synth.stopAlarm();
     synth.playSuccessTone();
-    AlarmNotificationService.cancelRingingNotification();
+
+    const dismissedAlarm = activeRingingAlarm;
+    AlarmNotificationService.cancelRingingNotification(dismissedAlarm?.id);
 
     const responseTimeSec = alarmTriggerTimestamp
       ? Math.max(1, Math.round((performance.now() - alarmTriggerTimestamp) / 1000))
       : 5;
 
-    const dismissedAlarm = activeRingingAlarm;
     if (dismissedAlarm) {
       recentlyDismissedRef.current.set(dismissedAlarm.id, Date.now());
       try {

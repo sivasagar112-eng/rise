@@ -34,6 +34,19 @@ interface AlarmSchedulerPluginInterface {
   getNetworkStatus(): Promise<{ isOnline: boolean }>;
 
   canScheduleExactAlarms(): Promise<{ canSchedule: boolean }>;
+
+  getPendingAlarm(): Promise<{
+    alarm: {
+      alarmId: string;
+      alarmTime: string;
+      alarmLabel: string;
+      dismissalType: string;
+      pushupTarget: number;
+      rampDuration: number;
+    } | null;
+  }>;
+
+  clearPendingAlarm(): Promise<{ success: boolean }>;
 }
 
 const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
@@ -129,6 +142,21 @@ export class AlarmNotificationService {
         }) as EventListener);
       }
 
+      // 7. Check for pending alarm that launched or woke the app (vital for cold-starts)
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const res = await AlarmSchedulerNative.getPendingAlarm();
+          if (res && res.alarm && res.alarm.alarmId) {
+            console.log('[AlarmNotificationService] Found pending alarm on init:', res.alarm);
+            if (AlarmNotificationService.triggerCallback) {
+              AlarmNotificationService.triggerCallback(res.alarm);
+            }
+          }
+        } catch (e) {
+          console.warn('[AlarmNotificationService] getPendingAlarm error on init:', e);
+        }
+      }
+
       this.isInitialized = true;
     } catch (err) {
       console.warn('[AlarmNotificationService] Init error:', err);
@@ -193,10 +221,14 @@ export class AlarmNotificationService {
   }
 
   // Cancel ringing heads-up notification when challenge is dismissed
-  public static async cancelRingingNotification(): Promise<void> {
+  public static async cancelRingingNotification(alarmId?: string): Promise<void> {
     try {
+      const cancelList: { id: number }[] = [{ id: 888888 }, { id: 1001 }];
+      if (alarmId) {
+        cancelList.push({ id: getNotificationId(alarmId) });
+      }
       await LocalNotifications.cancel({
-        notifications: [{ id: 888888 }, { id: 1001 }],
+        notifications: cancelList,
       });
 
       // Clear all delivered notifications so nothing lingers in status bar
@@ -206,10 +238,11 @@ export class AlarmNotificationService {
         console.warn('[AlarmNotificationService] removeAllDeliveredNotifications error:', e);
       }
 
-      // Also stop the native foreground AlarmService (removes foreground notification)
+      // Also stop the native foreground AlarmService and clear pending alarm
       if (Capacitor.isNativePlatform()) {
         try {
           await AlarmSchedulerNative.stopRinging();
+          await AlarmSchedulerNative.clearPendingAlarm();
         } catch (e) {
           console.warn('[AlarmNotificationService] Failed to stop native alarm service:', e);
         }

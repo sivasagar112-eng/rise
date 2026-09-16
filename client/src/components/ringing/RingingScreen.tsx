@@ -70,29 +70,19 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
 
       {/* Center Action Area: Interactive Camera / Pushup / Math Task */}
       <div className="w-full max-w-md mx-auto flex-1 flex flex-col items-center justify-center my-4">
-        {alarm.dismissalType === 'PUSHUP_MATH' && (
+        {alarm.dismissalType === 'BRIGHTNESS' ? (
+          <BrightnessCameraView onComplete={handleAllTasksDone} />
+        ) : alarm.dismissalType === 'FACE_AWAY' ? (
+          <FaceAwayCameraView onComplete={handleAllTasksDone} />
+        ) : alarm.dismissalType === 'OBJECT_MATCH' ? (
+          <ObjectMatchCameraView onComplete={handleAllTasksDone} />
+        ) : alarm.dismissalType === 'MATH' ? (
+          <MathChallengeView totalQuestions={3} onComplete={handleAllTasksDone} />
+        ) : (
           <PushupCameraView
             targetReps={alarm.pushupTarget || 5}
             onComplete={handleAllTasksDone}
           />
-        )}
-
-        {alarm.dismissalType === 'BRIGHTNESS' && (
-          <BrightnessCameraView onComplete={handleAllTasksDone} />
-        )}
-
-        {alarm.dismissalType === 'FACE_AWAY' && (
-          <FaceAwayCameraView onComplete={handleAllTasksDone} />
-        )}
-
-        {alarm.dismissalType === 'OBJECT_MATCH' && (
-          <ObjectMatchCameraView
-            onComplete={handleAllTasksDone}
-          />
-        )}
-
-        {alarm.dismissalType === 'MATH' && (
-          <MathChallengeView totalQuestions={3} onComplete={handleAllTasksDone} />
         )}
       </div>
 
