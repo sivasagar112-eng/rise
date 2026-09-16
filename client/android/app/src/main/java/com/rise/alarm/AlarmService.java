@@ -76,11 +76,18 @@ public class AlarmService extends Service {
         // Build the full-screen intent to launch the app
         Intent launchIntent = new Intent(this, MainActivity.class);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (alarmId == null || alarmId.trim().isEmpty()) {
+            Log.e(TAG, "AlarmService: alarmId is missing or empty! Stopping service without ringing.");
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         launchIntent.putExtra("alarmId", alarmId);
         launchIntent.putExtra("alarmTime", alarmTime);
         launchIntent.putExtra("alarmLabel", alarmLabel);
         launchIntent.putExtra("dismissalType", dismissalType);
         launchIntent.putExtra("pushupTarget", pushupTarget);
+        launchIntent.putExtra("rampDuration", rampDuration);
         launchIntent.putExtra("fromAlarmService", true);
 
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -119,8 +126,12 @@ public class AlarmService extends Service {
         // Start vibration
         startVibration();
 
-        // Launch the app activity
-        startActivity(launchIntent);
+        // Launch the app activity safely (fallback in case not already launched by AlarmTriggerHandler)
+        try {
+            startActivity(launchIntent);
+        } catch (Exception e) {
+            Log.d(TAG, "startActivity from AlarmService handled via full-screen intent: " + e.getMessage());
+        }
 
         return START_NOT_STICKY;
     }

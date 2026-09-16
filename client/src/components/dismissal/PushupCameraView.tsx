@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { synth } from '../../services/WebAudioSynth';
 import { PoseDetectionEngine, PoseResult } from '../../services/PoseDetectionEngine';
 import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 interface PushupCameraViewProps {
   targetReps: number;
@@ -57,6 +58,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(PoseDetectionEngine.isReady());
+  const isOnline = useNetworkStatus();
 
   // Real-time Debug HUD showing Shoulder, Chest, Hip Y values & displacement
   const [hudData, setHudData] = useState({
@@ -526,18 +528,29 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             >
               <FlipHorizontal size={16} />
             </button>
-            <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
-              {phase === 'LOADING_MODEL' && !modelReady ? (
-                <span className="flex items-center gap-1">
-                  <Loader2 size={10} className="animate-spin" /> LOADING AI...
+            <div className="flex items-center gap-1.5">
+              {/* Separate live network status indicator */}
+              <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+                <span className={isOnline ? 'text-emerald-400' : 'text-neutral-400'}>
+                  {isOnline ? 'Online' : 'Offline'}
                 </span>
-              ) : hudData.tracking ? (
-                <span className={hudData.isOffline ? 'text-amber-300 font-extrabold' : 'text-green-400'}>
-                  {hudData.isOffline ? '⚡ OFFLINE AI ACTIVE' : 'BODY TRACKED ✓'}
-                </span>
-              ) : (
-                <span className="text-amber-300">POSITION BODY</span>
-              )}
+              </div>
+
+              {/* On-Device AI Capability Badge */}
+              <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
+                {phase === 'LOADING_MODEL' && !modelReady ? (
+                  <span className="flex items-center gap-1">
+                    <Loader2 size={10} className="animate-spin" /> LOADING AI...
+                  </span>
+                ) : hudData.tracking ? (
+                  <span className={hudData.isOffline ? 'text-amber-300 font-extrabold' : 'text-green-400'}>
+                    {hudData.isOffline ? '⚡ ON-DEVICE AI' : 'BODY TRACKED ✓'}
+                  </span>
+                ) : (
+                  <span className="text-amber-300">POSITION BODY</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -590,7 +603,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       {/* Simple Debug HUD: Shoulder / Chest / Hip Y-values */}
       <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
         <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
-          <span>Torso Y-Movement Tracker {hudData.isOffline ? '(⚡ 100% Offline Vision)' : ''}</span>
+          <span>Torso Y-Movement Tracker {hudData.isOffline ? '(⚡ On-Device Vision)' : ''}</span>
           <span className="text-green-400 font-normal">Target: ≥{hudData.targetDrop}px</span>
         </div>
         <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">

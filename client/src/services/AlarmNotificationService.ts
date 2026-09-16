@@ -26,8 +26,14 @@ interface AlarmSchedulerPluginInterface {
     alarmId: string;
     alarmTime: string;
     alarmLabel: string;
+    dismissalType?: string;
+    pushupTarget?: number;
     rampDuration: number;
   }): Promise<{ success: boolean }>;
+
+  getNetworkStatus(): Promise<{ isOnline: boolean }>;
+
+  canScheduleExactAlarms(): Promise<{ canSchedule: boolean }>;
 }
 
 const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
@@ -44,8 +50,10 @@ function getNotificationId(alarmId: string): number {
 
 export class AlarmNotificationService {
   private static isInitialized = false;
+  private static triggerCallback: ((triggerData: any) => void) | null = null;
 
-  public static async init(onAlarmTrigger: (alarmId: string) => void): Promise<void> {
+  public static async init(onAlarmTrigger: (triggerData: any) => void): Promise<void> {
+    this.triggerCallback = onAlarmTrigger;
     if (this.isInitialized) return;
 
     try {
@@ -91,8 +99,8 @@ export class AlarmNotificationService {
       // 4. Listen for user clicking or interacting with notification
       LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
         const alarmId = action.notification.extra?.alarmId;
-        if (alarmId) {
-          onAlarmTrigger(alarmId);
+        if (alarmId && AlarmNotificationService.triggerCallback) {
+          AlarmNotificationService.triggerCallback(alarmId);
         }
       });
 
@@ -103,18 +111,20 @@ export class AlarmNotificationService {
           return;
         }
         const alarmId = notification.extra?.alarmId;
-        if (alarmId) {
-          onAlarmTrigger(alarmId);
+        if (alarmId && AlarmNotificationService.triggerCallback) {
+          AlarmNotificationService.triggerCallback(alarmId);
         }
       });
 
-      // 6. Listen for native alarm fired event (from AlarmService via MainActivity)
+      // 6. Listen for native alarm fired event (from AlarmTriggerHandler / AlarmService via MainActivity)
       if (typeof window !== 'undefined') {
         window.addEventListener('nativeAlarmFired', ((event: CustomEvent) => {
-          const alarmId = event.detail?.alarmId;
-          if (alarmId) {
-            console.log('[AlarmNotificationService] Native alarm fired for:', alarmId);
-            onAlarmTrigger(alarmId);
+          const detail = event.detail;
+          if (detail && detail.alarmId) {
+            console.log('[AlarmNotificationService] Native alarm fired with full payload:', detail);
+            if (AlarmNotificationService.triggerCallback) {
+              AlarmNotificationService.triggerCallback(detail);
+            }
           }
         }) as EventListener);
       }
@@ -172,6 +182,8 @@ export class AlarmNotificationService {
           alarmId: alarm.id,
           alarmTime: alarm.time,
           alarmLabel: alarm.label || 'Rise Alarm',
+          dismissalType: alarm.dismissalType,
+          pushupTarget: alarm.pushupTarget || 5,
           rampDuration: alarm.rampDuration || 30,
         });
       } catch (e) {
@@ -305,5 +317,18 @@ export class AlarmNotificationService {
     } catch (err) {
       console.warn('[AlarmNotificationService] Failed to sync alarms:', err);
     }
+  }
+
+  // Check live validated network status via native NetworkMonitor
+  public static async getNetworkStatus(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.getNetworkStatus();
+        return Boolean(res?.isOnline);
+      } catch (e) {
+        console.warn('[AlarmNotificationService] getNetworkStatus native error:', e);
+      }
+    }
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
   }
 }

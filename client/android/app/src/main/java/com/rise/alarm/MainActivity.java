@@ -13,10 +13,15 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
+import android.app.KeyguardManager;
+import android.content.Context;
+
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "RiseMainActivity";
     private static final int CAMERA_PERMISSION_CODE = 101;
     private static final int NOTIFICATION_PERMISSION_CODE = 102;
+
+    private NetworkMonitor.NetworkStatusListener networkListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,7 +30,38 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
-        // Ensure alarm wake-up can turn screen on and display over keyguard/lock screen
+        configureScreenAndKeyguard();
+        requestCameraFirst();
+        initNetworkMonitoring();
+        handleAlarmIntent(getIntent());
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        configureScreenAndKeyguard();
+        // Hold a partial WakeLock from trigger until the task Activity reports it is resumed, then release it
+        AlarmTriggerHandler.releaseWakeLock();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        configureScreenAndKeyguard();
+        handleAlarmIntent(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (networkListener != null) {
+            NetworkMonitor.getInstance(this).removeListener(networkListener);
+            networkListener = null;
+        }
+    }
+
+    private void configureScreenAndKeyguard() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -36,53 +72,110 @@ public class MainActivity extends BridgeActivity {
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             );
         }
-
-        // Keep screen on while the activity is visible (important during alarm)
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Step 1: Request Camera access first
-        requestCameraFirst();
-
-        // Check if launched from AlarmService
-        handleAlarmIntent(getIntent());
+        // Request keyguard dismiss so task UI is immediately interactive
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            if (km != null && km.isKeyguardLocked()) {
+                km.requestDismissKeyguard(this, null);
+            }
+        }
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        // Handle alarm intent when activity is already running (singleTask)
-        handleAlarmIntent(intent);
+    private void initNetworkMonitoring() {
+        networkListener = isOnline -> {
+            Log.d(TAG, "Dispatching networkStatusChanged event: isOnline=" + isOnline);
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().post(() -> {
+                    if (getBridge() != null && getBridge().getWebView() != null) {
+                        getBridge().getWebView().evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('networkStatusChanged', { detail: { isOnline: " + isOnline + " } }));",
+                            null
+                        );
+                    }
+                });
+            }
+        };
+        NetworkMonitor.getInstance(this).addListener(networkListener);
     }
 
     /**
-     * When AlarmService launches the activity with alarm extras,
-     * inject JavaScript to trigger the alarm in the WebView.
+     * When AlarmService or AlarmTriggerHandler launches the activity with alarm extras,
+     * extract all task configuration and inject JavaScript to trigger the task screen in the WebView.
      */
     private void handleAlarmIntent(Intent intent) {
         if (intent == null) return;
         boolean fromAlarmService = intent.getBooleanExtra("fromAlarmService", false);
-        if (!fromAlarmService) return;
-
         String alarmId = intent.getStringExtra("alarmId");
-        if (alarmId == null || alarmId.isEmpty()) return;
 
-        // Clear flag and alarmId immediately so it is not processed twice
+        // Process if marked fromAlarmService OR if an explicit alarmId extra is present
+        if (!fromAlarmService && (alarmId == null || alarmId.trim().isEmpty())) {
+            return;
+        }
+
+        if (alarmId == null || alarmId.trim().isEmpty()) {
+            Log.e(TAG, "handleAlarmIntent: alarmId extra is missing or blank!");
+            return;
+        }
+
+        String alarmTime = intent.getStringExtra("alarmTime");
+        String alarmLabel = intent.getStringExtra("alarmLabel");
+        String dismissalType = intent.getStringExtra("dismissalType");
+        int pushupTarget = intent.getIntExtra("pushupTarget", 5);
+        int rampDuration = intent.getIntExtra("rampDuration", 30);
+
+        // Task configuration fallback handling with explicit logging
+        if (dismissalType == null || dismissalType.trim().isEmpty()) {
+            Log.w(TAG, "handleAlarmIntent: dismissalType missing, defaulting to PUSHUP_MATH");
+            dismissalType = "PUSHUP_MATH";
+        }
+        if (pushupTarget <= 0) {
+            Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 5");
+            pushupTarget = 5;
+        }
+        if (alarmTime == null || alarmTime.trim().isEmpty()) {
+            alarmTime = "07:00";
+        }
+        if (alarmLabel == null || alarmLabel.trim().isEmpty()) {
+            alarmLabel = "Rise Alarm";
+        }
+
+        // Clear flag so intent is not repeatedly processed on configuration change
         intent.removeExtra("fromAlarmService");
-        intent.removeExtra("alarmId");
 
-        Log.d(TAG, "Handling alarm intent for: " + alarmId);
+        Log.d(TAG, "Handling alarm intent: id=" + alarmId + ", task=" + dismissalType + ", target=" + pushupTarget);
 
-        // Wait for the WebView to be ready, then inject JS to trigger the alarm
+        final String finalAlarmId = alarmId;
+        final String finalAlarmTime = alarmTime;
+        final String finalAlarmLabel = alarmLabel;
+        final String finalDismissalType = dismissalType;
+        final int finalPushupTarget = pushupTarget;
+        final int finalRampDuration = rampDuration;
+
+        Runnable dispatchRunnable = () -> {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                String js = String.format(
+                    "window.dispatchEvent(new CustomEvent('nativeAlarmFired', { detail: { " +
+                    "alarmId: '%s', alarmTime: '%s', alarmLabel: '%s', " +
+                    "dismissalType: '%s', pushupTarget: %d, rampDuration: %d } }));",
+                    finalAlarmId.replace("'", "\\'"),
+                    finalAlarmTime.replace("'", "\\'"),
+                    finalAlarmLabel.replace("'", "\\'"),
+                    finalDismissalType.replace("'", "\\'"),
+                    finalPushupTarget,
+                    finalRampDuration
+                );
+                getBridge().getWebView().evaluateJavascript(js, null);
+                Log.d(TAG, "Dispatched nativeAlarmFired event with full task config for: " + finalAlarmId);
+            }
+        };
+
         if (getBridge() != null && getBridge().getWebView() != null) {
-            getBridge().getWebView().postDelayed(() -> {
-                if (getBridge() != null && getBridge().getWebView() != null) {
-                    getBridge().getWebView().evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('nativeAlarmFired', { detail: { alarmId: '" + alarmId + "' } }));",
-                        null
-                    );
-                    Log.d(TAG, "Dispatched nativeAlarmFired event for: " + alarmId);
-                }
-            }, 1000);
+            // Immediate dispatch if app was already running in foreground
+            dispatchRunnable.run();
+            // Also postDelayed as insurance in case WebView was loading or transitioning
+            getBridge().getWebView().postDelayed(dispatchRunnable, 600);
         }
     }
 

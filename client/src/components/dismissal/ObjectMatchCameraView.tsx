@@ -332,7 +332,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
             {!isAiReady
               ? <span className="flex items-center justify-center gap-1"><Loader2 size={12} className="animate-spin" /> AI warming up...</span>
               : isOfflineMode
-                ? `⚡ Offline Mode: Scan ${randomTarget}`
+                ? `⚡ On-Device Mode: Scan ${randomTarget}`
                 : detectedLabel
                   ? `Seeing: ${detectedLabel}`
                   : `Looking for a ${randomTarget}…`}
@@ -365,11 +365,11 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
         </div>
       </div>
 
-      {/* Offline Manual Verification Fallback */}
+      {/* On-Device Manual Verification Fallback */}
       {isOfflineMode && (
         <div className="flex flex-col items-center space-y-1.5 mt-2">
           <div className="text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-            ⚡ OFFLINE MODE (Data is Off)
+            ⚡ ON-DEVICE MODE
           </div>
           <button
             onClick={() => {

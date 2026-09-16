@@ -48,6 +48,13 @@ public class AlarmSchedulerPlugin extends Plugin {
             return;
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager am = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            if (am != null && !am.canScheduleExactAlarms()) {
+                Log.w(TAG, "scheduleExact: App lacks SCHEDULE_EXACT_ALARM permission on Android 12+");
+            }
+        }
+
         try {
             scheduleNativeAlarm(
                 getContext(), alarmId, triggerMs, alarmTime, alarmLabel,
@@ -153,6 +160,7 @@ public class AlarmSchedulerPlugin extends Plugin {
 
     /**
      * Start the native AlarmService to play the single smooth ringtone on native Android
+     * Routed through unified AlarmTriggerHandler
      */
     @PluginMethod
     public void startRinging(PluginCall call) {
@@ -160,27 +168,53 @@ public class AlarmSchedulerPlugin extends Plugin {
             String alarmId = call.getString("alarmId", "test-alarm");
             String alarmTime = call.getString("alarmTime", "07:00");
             String alarmLabel = call.getString("alarmLabel", "Rise Alarm");
+            String dismissalType = call.getString("dismissalType", "PUSHUP_MATH");
+            int pushupTarget = call.getInt("pushupTarget", 5);
             int rampDuration = call.getInt("rampDuration", 30);
 
-            Intent serviceIntent = new Intent(getContext(), AlarmService.class);
-            serviceIntent.putExtra("alarmId", alarmId);
-            serviceIntent.putExtra("alarmTime", alarmTime);
-            serviceIntent.putExtra("alarmLabel", alarmLabel);
-            serviceIntent.putExtra("rampDuration", rampDuration);
+            Intent triggerIntent = new Intent();
+            triggerIntent.putExtra("alarmId", alarmId);
+            triggerIntent.putExtra("alarmTime", alarmTime);
+            triggerIntent.putExtra("alarmLabel", alarmLabel);
+            triggerIntent.putExtra("dismissalType", dismissalType);
+            triggerIntent.putExtra("pushupTarget", pushupTarget);
+            triggerIntent.putExtra("rampDuration", rampDuration);
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                getContext().startForegroundService(serviceIntent);
-            } else {
-                getContext().startService(serviceIntent);
-            }
+            AlarmTriggerHandler.handleAlarmTrigger(getContext(), triggerIntent);
 
             JSObject result = new JSObject();
             result.put("success", true);
             call.resolve(result);
-            Log.d(TAG, "Started native AlarmService for alarm " + alarmId);
+            Log.d(TAG, "Started ringing via AlarmTriggerHandler for alarm " + alarmId);
         } catch (Exception e) {
             call.reject("Failed to start ringing: " + e.getMessage());
         }
+    }
+
+    /**
+     * Get live validated network status from NetworkMonitor
+     */
+    @PluginMethod
+    public void getNetworkStatus(PluginCall call) {
+        boolean isOnline = NetworkMonitor.getInstance(getContext()).isOnline();
+        JSObject result = new JSObject();
+        result.put("isOnline", isOnline);
+        call.resolve(result);
+    }
+
+    /**
+     * Check exact alarm scheduling capability on Android 12+ (API 31+)
+     */
+    @PluginMethod
+    public void canScheduleExactAlarms(PluginCall call) {
+        JSObject result = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager am = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            result.put("canSchedule", am != null && am.canScheduleExactAlarms());
+        } else {
+            result.put("canSchedule", true);
+        }
+        call.resolve(result);
     }
 
     // --- Static helpers (also used by BootReceiver) ---

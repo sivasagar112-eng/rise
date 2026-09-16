@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { Alarm } from '../types/alarm';
 import { synth } from '../services/WebAudioSynth';
 import { AlarmNotificationService } from '../services/AlarmNotificationService';
+import { StorageService } from '../services/StorageService';
 
 interface UseAlarmSchedulerProps {
   alarms: Alarm[];
@@ -68,10 +69,44 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
 
   // Initialize native background AlarmNotificationService
   useEffect(() => {
-    AlarmNotificationService.init((alarmId) => {
-      const match = alarms.find((a) => a.id === alarmId);
+    AlarmNotificationService.init((triggerData) => {
+      const alarmId = typeof triggerData === 'string' ? triggerData : triggerData?.alarmId;
+      if (!alarmId) {
+        console.warn('[useAlarmScheduler] Received trigger event with no alarmId');
+        return;
+      }
+
+      // 1. Find in React state
+      let match = alarms.find((a) => a.id === alarmId);
+
+      // 2. Find in persistent storage
+      if (!match) {
+        const stored = StorageService.getAlarms();
+        match = stored.find((a) => a.id === alarmId);
+      }
+
+      // 3. Construct directly from native intent extras if still not matched
+      if (!match && typeof triggerData === 'object') {
+        match = {
+          id: alarmId,
+          time: triggerData.alarmTime || '07:00',
+          label: triggerData.alarmLabel || 'Rise Alarm',
+          daysOfWeek: [],
+          dismissalType: triggerData.dismissalType || 'PUSHUP_MATH',
+          pushupTarget: triggerData.pushupTarget || 5,
+          referenceDescriptor: null,
+          rampDuration: triggerData.rampDuration || 30,
+          preAlarmEnabled: false,
+          isEnabled: true,
+        };
+        console.log('[useAlarmScheduler] Constructed alarm from native intent extras:', match);
+      }
+
       if (match) {
+        console.log('[useAlarmScheduler] Triggering matched alarm:', match.id);
         triggerAlarm(match);
+      } else {
+        console.error('[useAlarmScheduler] Failed to find or construct alarm for ID:', alarmId);
       }
     });
   }, [alarms, triggerAlarm]);
