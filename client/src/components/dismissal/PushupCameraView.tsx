@@ -12,11 +12,9 @@ interface PushupCameraViewProps {
 type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
 // Pushup Movement Thresholds
-const MIN_DROP_PX = 20;            // Minimum vertical displacement (pixels) required for shoulder/chest/hip
-const ALIGNMENT_TOLERANCE_PX = 40; // Shoulder, chest, and hip must stay roughly aligned within this tolerance
-const REP_COOLDOWN_MS = 1000;      // Cooldown between reps
-const STABLE_FRAMES_GATE = 2;      // Frames required to confirm down/up states (2 frames ~100-130ms for responsive mobile tracking)
-const EMA_ALPHA = 0.4;             // EMA smoothing factor for Y-position tracking (lower = smoother)
+const MIN_DROP_PX = 16;            // Minimum vertical displacement (pixels) required for shoulder/chest
+const REP_COOLDOWN_MS = 400;       // Fast cooldown (400ms) allows natural pushup tempo
+const EMA_ALPHA = 0.75;            // High-reactivity smoothing (eliminates frame-to-frame lag)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,
@@ -28,6 +26,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const rafRef = useRef<number | null>(null);
   const completedRef = useRef(false);
   const mountedRef = useRef(true);
+  const isProcessingRef = useRef(false);
 
   // Simplified Tracking Refs (Shoulder, Chest, Hip only)
   const phaseRef = useRef<PushupPhase>('LOADING_MODEL');
@@ -196,221 +195,193 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     const processFrame = async () => {
       if (!mountedRef.current || completedRef.current || !isCurrentEffect) return;
 
-      const video = videoRef.current;
-      const canvas = overlayCanvasRef.current;
-
-      if (video && video.paused && video.readyState >= 2) {
-        video.play().catch(() => {});
+      if (isProcessingRef.current) {
+        rafRef.current = requestAnimationFrame(processFrame);
+        return;
       }
+      isProcessingRef.current = true;
 
-      if (video && canvas && video.readyState >= 2 && modelReadyRef.current) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-          }
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+      try {
+        const video = videoRef.current;
+        const canvas = overlayCanvasRef.current;
 
-          const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
+        if (video && video.paused && video.readyState >= 2) {
+          video.play().catch(() => {});
+        }
 
-          if (result && isCurrentEffect && mountedRef.current) {
-            // Skeleton overlay removed — pose detection still runs but nothing is drawn on screen
-
-            const shoulder = result.shoulder;
-            const chest = result.chest;
-            const hip = result.hip;
-
-            // Only track if shoulder, chest, and hip are detected
-            const hasBodyPoints = Boolean(shoulder && chest && hip && result.isTracking);
-
-            if (!hasBodyPoints) {
-              setHudData((prev) => ({ ...prev, tracking: false }));
-              if (phaseRef.current !== 'FINISHED') {
-                phaseRef.current = 'WAITING_FOR_BODY';
-                setPhase('WAITING_FOR_BODY');
-                setGuidance('Ensure shoulders and hips are clearly visible in camera.');
-              }
-              rafRef.current = requestAnimationFrame(processFrame);
-              return;
+        if (video && canvas && video.readyState >= 2 && modelReadyRef.current) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
             }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Extract Y-axis positions (pixels from top of image) and apply EMA smoothing
-            const rawSY = shoulder!.y;
-            const rawCY = chest!.y;
-            const rawHY = hip!.y;
+            const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
-            // EMA smoothing to reduce frame-to-frame noise/jitter
-            smoothSYRef.current = smoothSYRef.current === null ? rawSY : smoothSYRef.current * (1 - EMA_ALPHA) + rawSY * EMA_ALPHA;
-            smoothCYRef.current = smoothCYRef.current === null ? rawCY : smoothCYRef.current * (1 - EMA_ALPHA) + rawCY * EMA_ALPHA;
-            smoothHYRef.current = smoothHYRef.current === null ? rawHY : smoothHYRef.current * (1 - EMA_ALPHA) + rawHY * EMA_ALPHA;
+            if (result && isCurrentEffect && mountedRef.current) {
+              const shoulder = result.shoulder;
+              const chest = result.chest;
+              const hip = result.hip;
 
-            const sY = smoothSYRef.current;
-            const cY = smoothCYRef.current;
-            const hY = smoothHYRef.current;
+              // Only track if shoulder, chest, and hip are detected
+              const hasBodyPoints = Boolean(shoulder && chest && hip && result.isTracking);
 
-            // Dynamic minimum movement distance based on video resolution
-            const vHeight = video.videoHeight || 480;
-            const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.04));
-
-            // Establish or smoothly maintain baseline at UP position
-            if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
-              baseShoulderYRef.current = sY;
-              baseChestYRef.current = cY;
-              baseHipYRef.current = hY;
-            } else if (phaseRef.current === 'UP' || phaseRef.current === 'WAITING_FOR_BODY') {
-              // Only smooth baseline when stationary in UP position (don't pull down during descent)
-              const diffS = Math.abs(sY - baseShoulderYRef.current);
-              if (diffS < 6) {
-                baseShoulderYRef.current = baseShoulderYRef.current * 0.92 + sY * 0.08;
-                baseChestYRef.current = baseChestYRef.current * 0.92 + cY * 0.08;
-                baseHipYRef.current = baseHipYRef.current * 0.92 + hY * 0.08;
+              if (!hasBodyPoints) {
+                setHudData((prev) => ({ ...prev, tracking: false }));
+                if (phaseRef.current !== 'FINISHED') {
+                  phaseRef.current = 'WAITING_FOR_BODY';
+                  setPhase('WAITING_FOR_BODY');
+                  setGuidance('Ensure shoulders and hips are clearly visible in camera.');
+                }
+                return;
               }
 
-              if (phaseRef.current === 'WAITING_FOR_BODY') {
-                phaseRef.current = 'UP';
-                setPhase('UP');
-                setGuidance('Ready! Lower your body down.');
+              // Extract Y-axis positions (pixels from top of image) and apply EMA smoothing
+              const rawSY = shoulder!.y;
+              const rawCY = chest!.y;
+              const rawHY = hip!.y;
+
+              // EMA smoothing (0.75) for fast response without frame lag
+              smoothSYRef.current = smoothSYRef.current === null ? rawSY : smoothSYRef.current * (1 - EMA_ALPHA) + rawSY * EMA_ALPHA;
+              smoothCYRef.current = smoothCYRef.current === null ? rawCY : smoothCYRef.current * (1 - EMA_ALPHA) + rawCY * EMA_ALPHA;
+              smoothHYRef.current = smoothHYRef.current === null ? rawHY : smoothHYRef.current * (1 - EMA_ALPHA) + rawHY * EMA_ALPHA;
+
+              const sY = smoothSYRef.current;
+              const cY = smoothCYRef.current;
+              const hY = smoothHYRef.current;
+
+              // Dynamic minimum movement distance based on video resolution
+              const vHeight = video.videoHeight || 480;
+              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.035));
+
+              // Establish or smoothly maintain baseline at UP position
+              if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
+                baseShoulderYRef.current = sY;
+                baseChestYRef.current = cY;
+                baseHipYRef.current = hY;
+              } else if (phaseRef.current === 'UP' || phaseRef.current === 'WAITING_FOR_BODY') {
+                const diffS = Math.abs(sY - baseShoulderYRef.current);
+                if (diffS < 8) {
+                  baseShoulderYRef.current = baseShoulderYRef.current * 0.90 + sY * 0.10;
+                  baseChestYRef.current = baseChestYRef.current * 0.90 + cY * 0.10;
+                  baseHipYRef.current = baseHipYRef.current * 0.90 + hY * 0.10;
+                }
+
+                if (phaseRef.current === 'WAITING_FOR_BODY') {
+                  phaseRef.current = 'UP';
+                  setPhase('UP');
+                  setGuidance('Ready! Lower your body down.');
+                }
               }
-            }
 
-            // 1. Track vertical (Y-axis) movement relative to baseline
-            // (In image coordinates, moving DOWN toward the ground increases Y)
-            const sDrop = sY - (baseShoulderYRef.current ?? sY);
-            const cDrop = cY - (baseChestYRef.current ?? cY);
-            const hDrop = hY - (baseHipYRef.current ?? hY);
+              // Track vertical (Y-axis) movement relative to baseline
+              const sDrop = sY - (baseShoulderYRef.current ?? sY);
+              const cDrop = cY - (baseChestYRef.current ?? cY);
+              const hDrop = hY - (baseHipYRef.current ?? hY);
 
-            // Update real-time HUD
-            setHudData({
-              tracking: true,
-              isOffline: Boolean(result.isOffline),
-              sY: Math.round(sY),
-              cY: Math.round(cY),
-              hY: Math.round(hY),
-              sDrop: Math.round(sDrop),
-              cDrop: Math.round(cDrop),
-              hDrop: Math.round(hDrop),
-              targetDrop: dynamicMinDrop,
-            });
+              // Update real-time HUD
+              setHudData({
+                tracking: true,
+                isOffline: Boolean(result.isOffline),
+                sY: Math.round(sY),
+                cY: Math.round(cY),
+                hY: Math.round(hY),
+                sDrop: Math.round(sDrop),
+                cDrop: Math.round(cDrop),
+                hDrop: Math.round(hDrop),
+                targetDrop: dynamicMinDrop,
+              });
 
-            const now = performance.now();
+              const now = performance.now();
 
-            // Debug logging each second or on significant movement
-            if (now - lastLogMsRef.current > 1000) {
-              console.log(
-                `[PushupTracker] Y-pos: S=${sY.toFixed(0)} C=${cY.toFixed(0)} H=${hY.toFixed(0)} | Drop: S=${sDrop.toFixed(0)} C=${cDrop.toFixed(0)} H=${hDrop.toFixed(0)} (Min: ${dynamicMinDrop}) | Phase: ${phaseRef.current}`
-              );
-              lastLogMsRef.current = now;
-            }
-
-            // ==============================================================
-            // SIMPLIFIED PUSHUP LOGIC: Shoulder + Chest + Hip Moving Together
-            // ==============================================================
-
-            if (phaseRef.current === 'UP') {
-              // Descent Detection: Shoulder, chest AND hip must all start moving down together
-              if (sDrop >= 10 && cDrop >= 8 && hDrop >= 4) {
-                phaseRef.current = 'GOING_DOWN';
-                phaseStartMsRef.current = now;
-                setPhase('GOING_DOWN');
-                setGuidance('Lowering down... keep going!');
-                maxDropSeenRef.current = Math.max(sDrop, cDrop, hDrop);
+              if (now - lastLogMsRef.current > 1000) {
+                console.log(
+                  `[PushupTracker] Y-pos: S=${sY.toFixed(0)} C=${cY.toFixed(0)} H=${hY.toFixed(0)} | Drop: S=${sDrop.toFixed(0)} C=${cDrop.toFixed(0)} H=${hDrop.toFixed(0)} (Min: ${dynamicMinDrop}) | Phase: ${phaseRef.current}`
+                );
+                lastLogMsRef.current = now;
               }
-            } else if (phaseRef.current === 'GOING_DOWN') {
-              maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
 
-              // 2. A valid pushup "DOWN" position:
-              // - Shoulder, chest, and hip ALL move DOWN together by at least dynamicMinDrop
-              // - Shoulder, chest, and hip stay aligned with each other within tolerance
-              const allMovedDown =
-                sDrop >= dynamicMinDrop &&
-                cDrop >= dynamicMinDrop * 0.8 &&
-                hDrop >= dynamicMinDrop * 0.45;
+              // ==============================================================
+              // HIGH-SPEED PUSHUP LOGIC: Responsive Up-Down-Up Tracking
+              // ==============================================================
 
-              const alignedTogether =
-                Math.abs(sDrop - cDrop) < ALIGNMENT_TOLERANCE_PX &&
-                Math.abs(cDrop - hDrop) < ALIGNMENT_TOLERANCE_PX;
+              if (phaseRef.current === 'UP') {
+                // Descent Detection: Shoulders and chest start moving down
+                if (sDrop >= 8 && cDrop >= 6) {
+                  phaseRef.current = 'GOING_DOWN';
+                  phaseStartMsRef.current = now;
+                  setPhase('GOING_DOWN');
+                  setGuidance('Lowering down... keep going!');
+                  maxDropSeenRef.current = Math.max(sDrop, cDrop);
+                }
+              } else if (phaseRef.current === 'GOING_DOWN') {
+                maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
 
-              if (allMovedDown && alignedTogether) {
-                stableDownCountRef.current++;
-                if (stableDownCountRef.current >= STABLE_FRAMES_GATE) {
+                // 2. A valid pushup DOWN position:
+                // Shoulder drops by dynamicMinDrop, chest drops with it, and hip does not rise into air (hDrop >= -10)
+                const isDown = sDrop >= dynamicMinDrop && cDrop >= dynamicMinDrop * 0.70 && hDrop >= -10;
+
+                if (isDown) {
                   phaseRef.current = 'DOWN';
                   phaseStartMsRef.current = now;
                   setPhase('DOWN');
                   setGuidance('Bottom reached! Now push back UP!');
-                  stableUpCountRef.current = 0;
                   console.log(
                     `[PushupTracker] ⬇ DOWN REACHED: S:+${sDrop.toFixed(0)}px, C:+${cDrop.toFixed(0)}px, H:+${hDrop.toFixed(0)}px`
                   );
+                } else if (sDrop < 5 && cDrop < 5 && maxDropSeenRef.current < dynamicMinDrop) {
+                  // Aborted rep (returned to top without hitting full depth)
+                  phaseRef.current = 'UP';
+                  setPhase('UP');
+                  setGuidance('Lower your entire body all the way down.');
                 }
-              } else {
-                stableDownCountRef.current = 0;
-              }
+              } else if (phaseRef.current === 'DOWN') {
+                // Start pushing up: body starts ascending
+                if (sDrop < maxDropSeenRef.current - 5) {
+                  phaseRef.current = 'GOING_UP';
+                  phaseStartMsRef.current = now;
+                  setPhase('GOING_UP');
+                  setGuidance('Pushing up — return to top!');
+                } else if (now - phaseStartMsRef.current > 4000) {
+                  setGuidance('Bottom reached! Push your body back UP!');
+                }
+              } else if (phaseRef.current === 'GOING_UP') {
+                // 3. A valid pushup UP position:
+                // Shoulder and chest return to starting height (within 40% of peak drop or <= 15px)
+                const returnedUp =
+                  sDrop <= Math.max(15, maxDropSeenRef.current * 0.40) &&
+                  cDrop <= Math.max(15, maxDropSeenRef.current * 0.40);
 
-              // Aborted rep (returned to top without hitting full depth)
-              if (sDrop < 6 && cDrop < 6 && maxDropSeenRef.current < dynamicMinDrop) {
-                phaseRef.current = 'UP';
-                setPhase('UP');
-                setGuidance('Lower your entire body all the way down.');
-              }
-            } else if (phaseRef.current === 'DOWN') {
-              // Start pushing up: body starts ascending
-              if (sDrop < maxDropSeenRef.current - 6) {
-                phaseRef.current = 'GOING_UP';
-                phaseStartMsRef.current = now;
-                setPhase('GOING_UP');
-                setGuidance('Pushing up — return to top!');
-                stableUpCountRef.current = 0;
-              } else if (now - phaseStartMsRef.current > 4000) {
-                setGuidance('Bottom reached! Push your body back UP!');
-              }
-            } else if (phaseRef.current === 'GOING_UP') {
-              // 3. A valid pushup "UP" position:
-              // - Shoulder and chest return to starting height (within 45% of peak drop or <= 16px)
-              // - Hip returns towards top
-              const allMovedBackUp =
-                sDrop <= Math.max(16, maxDropSeenRef.current * 0.45) &&
-                cDrop <= Math.max(16, maxDropSeenRef.current * 0.45) &&
-                hDrop <= Math.max(20, maxDropSeenRef.current * 0.60);
-
-              if (allMovedBackUp) {
-                stableUpCountRef.current++;
-                if (stableUpCountRef.current >= STABLE_FRAMES_GATE) {
-                  // 4. Count one rep when full cycle completed + cooldown passed
+                if (returnedUp) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
-                    stableDownCountRef.current = 0;
-                    stableUpCountRef.current = 0;
-                    // Update baseline to current height for next rep
                     baseShoulderYRef.current = sY;
                     baseChestYRef.current = cY;
                     baseHipYRef.current = hY;
                     countRepRef.current();
                   }
-                }
-              } else {
-                stableUpCountRef.current = 0;
-              }
-
-              // Safety timeout recovery if user pushed up but is hovering or landmark slightly shifted
-              if (now - phaseStartMsRef.current > 3500) {
-                if (sDrop <= maxDropSeenRef.current * 0.55 && (now - lastRepMsRef.current >= REP_COOLDOWN_MS)) {
-                  lastRepMsRef.current = now;
-                  stableDownCountRef.current = 0;
-                  stableUpCountRef.current = 0;
-                  baseShoulderYRef.current = sY;
-                  baseChestYRef.current = cY;
-                  baseHipYRef.current = hY;
-                  countRepRef.current();
-                } else {
-                  phaseRef.current = 'UP';
-                  setPhase('UP');
-                  setGuidance('Push all the way up to complete the rep.');
+                } else if (now - phaseStartMsRef.current > 3000) {
+                  // Safety recovery if user pushed up but landmark slightly shifted
+                  if (sDrop <= maxDropSeenRef.current * 0.55 && now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
+                    lastRepMsRef.current = now;
+                    baseShoulderYRef.current = sY;
+                    baseChestYRef.current = cY;
+                    baseHipYRef.current = hY;
+                    countRepRef.current();
+                  } else {
+                    phaseRef.current = 'UP';
+                    setPhase('UP');
+                    setGuidance('Push all the way up to complete the rep.');
+                  }
                 }
               }
             }
           }
         }
+      } finally {
+        isProcessingRef.current = false;
       }
 
       rafRef.current = requestAnimationFrame(processFrame);
