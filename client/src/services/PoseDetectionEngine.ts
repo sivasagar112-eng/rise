@@ -187,9 +187,10 @@ export class OfflineTorsoTracker {
       let rawHY: number;
       let rawMidX: number;
       let rawW: number;
+      let isBodyTracked = false;
       let isUpright = false;
 
-      if (totalWeight > 350 && maxActiveY > minActiveY + 8) {
+      if (totalWeight > 1200 && maxActiveY > minActiveY + 18) {
         // Robust bounds excluding sparse noise (10th to 90th percentile)
         let accY = 0;
         let p10Y = minActiveY;
@@ -222,6 +223,15 @@ export class OfflineTorsoTracker {
         rawHY = hY_sample * scaleY;
         rawMidX = comX * scaleX;
         rawW = Math.max(80, activeWidth * scaleX);
+
+        // Body presence validation: A moving hand or arm is small (<30% width, <20% height).
+        // A human torso in pushup plank spans at least 30% of screen width and has a vertical torso span >= 18% of screen height.
+        const torsoPixelSpan = rawHY - rawSY;
+        const isSufficientWidth = activeWidth >= sw * 0.28;
+        const isSufficientHeight = activeHeight >= sh * 0.20;
+        if (isSufficientWidth && isSufficientHeight && !isUpright && torsoPixelSpan >= vh * 0.16) {
+          isBodyTracked = true;
+        }
       } else {
         // Fallback gentle estimation centered in frame
         rawSY = vh * 0.35;
@@ -296,12 +306,12 @@ export class OfflineTorsoTracker {
         shoulder,
         chest,
         hip,
-        isTracking: true,
+        isTracking: isBodyTracked,
         leftElbowAngle: 90,
         rightElbowAngle: 90,
         avgElbowAngle: 90,
-        confidence: 0.92,
-        isBodyVisible: true,
+        confidence: isBodyTracked ? 0.92 : 0.2,
+        isBodyVisible: isBodyTracked,
         hasShoulder: true,
         hasElbow: true,
         hasWrist: true,
@@ -595,7 +605,15 @@ export class PoseDetectionEngine {
       };
     }
 
-    const isTracking = hasShoulder && hasHip;
+    let isTorsoSpanValid = false;
+    if (shoulder && hip) {
+      const torsoDist = Math.hypot(hip.x - shoulder.x, hip.y - shoulder.y);
+      if (torsoDist >= vh * 0.16) {
+        isTorsoSpanValid = true;
+      }
+    }
+
+    const isTracking = Boolean(hasShoulder && hasHip && isTorsoSpanValid && !isUpright);
 
     return {
       keypoints,

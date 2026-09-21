@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Sparkles, ArrowLeft } from 'lucide-react';
+import { X, Trash2, Sparkles } from 'lucide-react';
 import { useCameraVision } from '../../hooks/useCameraVision';
 import { ScrollPicker } from './ScrollPicker';
 
@@ -131,26 +131,15 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                 {alarm ? 'Configure.' : 'Rise.'}
               </h2>
             </div>
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Back"
-                title="Back"
-                className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors active:scale-95"
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close"
-                title="Close"
-                className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors active:scale-95"
-              >
-                <X size={16} />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close"
+              className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors active:scale-95"
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
 

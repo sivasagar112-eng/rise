@@ -34,6 +34,8 @@ public class AlarmService extends Service {
     private static final String CHANNEL_ID = "rise_alarm_foreground_channel";
     private static final int NOTIFICATION_ID = 999999;
 
+    public static volatile boolean isServiceRunning = false;
+
     private MediaPlayer mediaPlayer;
     private Vibrator vibrator;
     private PowerManager.WakeLock wakeLock;
@@ -51,9 +53,12 @@ public class AlarmService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
+            isServiceRunning = false;
             stopSelf();
             return START_NOT_STICKY;
         }
+
+        isServiceRunning = true;
 
         String alarmId = intent.getStringExtra("alarmId");
         String alarmTime = intent.getStringExtra("alarmTime");
@@ -311,6 +316,8 @@ public class AlarmService extends Service {
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
+
+        isServiceRunning = false;
     }
 
     @Override

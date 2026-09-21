@@ -109,13 +109,14 @@ public class MainActivity extends BridgeActivity {
         boolean fromAlarmService = intent.getBooleanExtra("fromAlarmService", false);
         String alarmId = intent.getStringExtra("alarmId");
 
-        // Process if marked fromAlarmService OR if an explicit alarmId extra is present
-        if (!fromAlarmService && (alarmId == null || alarmId.trim().isEmpty())) {
+        // Process only if fromAlarmService flag is present or AlarmService is actively running
+        if (!fromAlarmService && !AlarmService.isServiceRunning) {
+            Log.d(TAG, "handleAlarmIntent: Ignoring intent because AlarmService is not running (regular app open)");
             return;
         }
 
         if (alarmId == null || alarmId.trim().isEmpty()) {
-            Log.e(TAG, "handleAlarmIntent: alarmId extra is missing or blank!");
+            Log.d(TAG, "handleAlarmIntent: alarmId extra is missing or blank, skipping");
             return;
         }
 
@@ -141,8 +142,15 @@ public class MainActivity extends BridgeActivity {
             alarmLabel = "Rise Alarm";
         }
 
-        // Clear flag so intent is not repeatedly processed on configuration change
+        // CRITICAL: Clear all extras immediately so this intent never replays on config change or recents restart
         intent.removeExtra("fromAlarmService");
+        intent.removeExtra("alarmId");
+        intent.removeExtra("alarmTime");
+        intent.removeExtra("alarmLabel");
+        intent.removeExtra("dismissalType");
+        intent.removeExtra("pushupTarget");
+        intent.removeExtra("rampDuration");
+        setIntent(new Intent(this, MainActivity.class));
 
         Log.d(TAG, "Handling alarm intent: id=" + alarmId + ", task=" + dismissalType + ", target=" + pushupTarget);
 

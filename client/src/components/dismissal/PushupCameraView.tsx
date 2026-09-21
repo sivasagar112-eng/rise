@@ -12,7 +12,7 @@ interface PushupCameraViewProps {
 type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
 // Pushup Movement Thresholds
-const MIN_DROP_PX = 16;            // Minimum vertical displacement (pixels) required for shoulder/chest
+const MIN_DROP_PX = 28;            // Minimum vertical displacement (pixels) required for shoulder/chest
 const REP_COOLDOWN_MS = 400;       // Fast cooldown (400ms) allows natural pushup tempo
 const EMA_ALPHA = 0.75;            // High-reactivity smoothing (eliminates frame-to-frame lag)
 
@@ -32,6 +32,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const phaseRef = useRef<PushupPhase>('LOADING_MODEL');
   const repsRef = useRef(0);
   const lastRepMsRef = useRef<number>(0);
+  const repStartMsRef = useRef<number>(0);
   const maxDropSeenRef = useRef<number>(0);
   const stableDownCountRef = useRef(0);
   const stableUpCountRef = useRef(0);
@@ -230,10 +231,16 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
               if (!hasBodyPoints) {
                 setHudData((prev) => ({ ...prev, tracking: false }));
+                baseShoulderYRef.current = null;
+                baseChestYRef.current = null;
+                baseHipYRef.current = null;
+                smoothSYRef.current = null;
+                smoothCYRef.current = null;
+                smoothHYRef.current = null;
                 if (phaseRef.current !== 'FINISHED') {
                   phaseRef.current = 'WAITING_FOR_BODY';
                   setPhase('WAITING_FOR_BODY');
-                  setGuidance('Ensure shoulders and hips are clearly visible in camera.');
+                  setGuidance('Step back: ensure shoulders, chest & hips are in view.');
                 }
                 return;
               }
@@ -252,9 +259,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cY = smoothCYRef.current;
               const hY = smoothHYRef.current;
 
-              // Dynamic minimum movement distance based on video resolution
+              // Dynamic minimum movement distance based on video resolution (at least 28px)
               const vHeight = video.videoHeight || 480;
-              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.035));
+              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.065));
 
               // Establish or smoothly maintain baseline at UP position
               if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
@@ -309,9 +316,10 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
               if (phaseRef.current === 'UP') {
                 // Descent Detection: Shoulders and chest start moving down
-                if (sDrop >= 8 && cDrop >= 6) {
+                if (sDrop >= 12 && cDrop >= 10) {
                   phaseRef.current = 'GOING_DOWN';
                   phaseStartMsRef.current = now;
+                  repStartMsRef.current = now;
                   setPhase('GOING_DOWN');
                   setGuidance('Lowering down... keep going!');
                   maxDropSeenRef.current = Math.max(sDrop, cDrop);
@@ -320,8 +328,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
 
                 // 2. A valid pushup DOWN position:
-                // Shoulder drops by dynamicMinDrop, chest drops with it, and hip does not rise into air (hDrop >= -10)
-                const isDown = sDrop >= dynamicMinDrop && cDrop >= dynamicMinDrop * 0.70 && hDrop >= -10;
+                // Shoulder drops by dynamicMinDrop, chest drops with it, torso cohesion holds,
+                // and descent has taken at least 160ms (rejecting flicking hand movements)
+                const torsoCohesion = Math.abs(sDrop - cDrop) < dynamicMinDrop * 0.85;
+                const descentDuration = now - phaseStartMsRef.current;
+                const isDown = sDrop >= dynamicMinDrop && cDrop >= dynamicMinDrop * 0.65 && torsoCohesion && hDrop >= -15 && descentDuration >= 160;
 
                 if (isDown) {
                   phaseRef.current = 'DOWN';
@@ -331,7 +342,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   console.log(
                     `[PushupTracker] ⬇ DOWN REACHED: S:+${sDrop.toFixed(0)}px, C:+${cDrop.toFixed(0)}px, H:+${hDrop.toFixed(0)}px`
                   );
-                } else if (sDrop < 5 && cDrop < 5 && maxDropSeenRef.current < dynamicMinDrop) {
+                } else if (sDrop < 6 && cDrop < 6 && maxDropSeenRef.current < dynamicMinDrop) {
                   // Aborted rep (returned to top without hitting full depth)
                   phaseRef.current = 'UP';
                   setPhase('UP');
@@ -339,7 +350,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 }
               } else if (phaseRef.current === 'DOWN') {
                 // Start pushing up: body starts ascending
-                if (sDrop < maxDropSeenRef.current - 5) {
+                if (sDrop < maxDropSeenRef.current - 6) {
                   phaseRef.current = 'GOING_UP';
                   phaseStartMsRef.current = now;
                   setPhase('GOING_UP');
@@ -354,7 +365,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   sDrop <= Math.max(15, maxDropSeenRef.current * 0.40) &&
                   cDrop <= Math.max(15, maxDropSeenRef.current * 0.40);
 
-                if (returnedUp) {
+                const totalRepTime = now - repStartMsRef.current;
+
+                if (returnedUp && totalRepTime >= 400) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
                     baseShoulderYRef.current = sY;
@@ -364,7 +377,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   }
                 } else if (now - phaseStartMsRef.current > 3000) {
                   // Safety recovery if user pushed up but landmark slightly shifted
-                  if (sDrop <= maxDropSeenRef.current * 0.55 && now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
+                  if (sDrop <= maxDropSeenRef.current * 0.55 && totalRepTime >= 400 && now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
                     baseShoulderYRef.current = sY;
                     baseChestYRef.current = cY;

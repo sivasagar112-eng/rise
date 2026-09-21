@@ -43,16 +43,35 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       return;
     }
 
-    // Guard: Prevent rapid duplicate triggers (within 8 seconds) from race conditions
-    const dismissedAtMem = recentlyDismissedRef.current.get(alarm.id) || 0;
-    let dismissedAtStorage = 0;
+    // Guard: Prevent re-triggering an alarm that was already completed today for this scheduled time
+    const nowMs = Date.now();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dismissKey = `rise_dismissed_${alarm.id}_${todayStr}_${alarm.time}`;
+    let wasDismissedToday = false;
+    let lastDismissedTime = recentlyDismissedRef.current.get(alarm.id) || 0;
+
     try {
-      const stored = localStorage.getItem(`rise_dismissed_${alarm.id}`);
-      if (stored) dismissedAtStorage = Number(stored);
+      if (localStorage.getItem(dismissKey)) {
+        wasDismissedToday = true;
+      }
+      const storedDismissed = localStorage.getItem(`rise_dismissed_${alarm.id}`);
+      if (storedDismissed) {
+        lastDismissedTime = Math.max(lastDismissedTime, Number(storedDismissed));
+      }
+      const globalLastTime = Number(localStorage.getItem('rise_last_dismissed_time') || '0');
+      const globalLastId = localStorage.getItem('rise_last_dismissed_alarm_id');
+      if (globalLastId === alarm.id && globalLastTime > lastDismissedTime) {
+        lastDismissedTime = globalLastTime;
+      }
     } catch {}
-    const dismissedAt = Math.max(dismissedAtMem, dismissedAtStorage);
-    if (dismissedAt && Date.now() - dismissedAt < 8 * 1000) {
-      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was just dismissed within 8 seconds. Ignoring duplicate.`);
+
+    if (wasDismissedToday) {
+      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was already completed today for ${alarm.time}. Skipping duplicate trigger.`);
+      return;
+    }
+
+    if (lastDismissedTime && nowMs - lastDismissedTime < 3 * 60 * 1000) {
+      console.log(`[useAlarmScheduler] Alarm ${alarm.id} was dismissed ${Math.round((nowMs - lastDismissedTime)/1000)}s ago. Skipping duplicate trigger.`);
       return;
     }
 
@@ -125,6 +144,23 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       }
 
       if (match) {
+        // Prevent cold-start reactivation if this alarm was already dismissed today or within 3 minutes
+        const nowMs = Date.now();
+        const todayStr = new Date().toISOString().split('T')[0];
+        const dismissKey = `rise_dismissed_${match.id}_${todayStr}_${match.time}`;
+        const wasDismissedToday = Boolean(localStorage.getItem(dismissKey));
+        let lastDismissedTime = recentlyDismissedRef.current.get(match.id) || 0;
+        try {
+          const stored = localStorage.getItem(`rise_dismissed_${match.id}`);
+          if (stored) lastDismissedTime = Math.max(lastDismissedTime, Number(stored));
+        } catch {}
+
+        if (wasDismissedToday || (lastDismissedTime && nowMs - lastDismissedTime < 3 * 60 * 1000)) {
+          console.log('[useAlarmScheduler] Ignoring cold start trigger for already dismissed alarm:', match.id);
+          AlarmNotificationService.cancelRingingNotification(match.id);
+          return;
+        }
+
         console.log('[useAlarmScheduler] Triggering matched alarm:', match.id);
         triggerAlarm(match);
       } else {
@@ -183,6 +219,11 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
 
         // Exact alarm trigger match
         if (currentMinuteStr === alarm.time) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const dismissKey = `rise_dismissed_${alarm.id}_${todayStr}_${alarm.time}`;
+          if (localStorage.getItem(dismissKey)) {
+            continue; // Already completed today!
+          }
           triggerAlarm(alarm);
           break;
         }
@@ -223,9 +264,14 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       : 5;
 
     if (dismissedAlarm) {
-      recentlyDismissedRef.current.set(dismissedAlarm.id, Date.now());
+      const nowMs = Date.now();
+      recentlyDismissedRef.current.set(dismissedAlarm.id, nowMs);
+      const todayStr = new Date().toISOString().split('T')[0];
       try {
-        localStorage.setItem(`rise_dismissed_${dismissedAlarm.id}`, String(Date.now()));
+        localStorage.setItem(`rise_dismissed_${dismissedAlarm.id}`, String(nowMs));
+        localStorage.setItem(`rise_dismissed_${dismissedAlarm.id}_${todayStr}_${dismissedAlarm.time}`, String(nowMs));
+        localStorage.setItem(`rise_last_dismissed_time`, String(nowMs));
+        localStorage.setItem(`rise_last_dismissed_alarm_id`, dismissedAlarm.id);
       } catch {}
     }
     activeAlarmIdRef.current = null;
