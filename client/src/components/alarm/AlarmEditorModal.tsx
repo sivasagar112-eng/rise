@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Sparkles } from 'lucide-react';
+import { X, Trash2, Sparkles, ArrowLeft } from 'lucide-react';
 import { useCameraVision } from '../../hooks/useCameraVision';
 import { ScrollPicker } from './ScrollPicker';
 
@@ -82,12 +82,46 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
     onSave(updated);
   };
 
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartYRef.current !== null) {
+      const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+      if (deltaY > 80) {
+        onClose();
+      }
+      touchStartYRef.current = null;
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in">
-      <div className="w-full max-w-md bg-[#111113] border border-white/10 rounded-t-3xl sm:rounded-3xl select-none max-h-[92vh] overflow-y-auto text-white">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md bg-[#111113] border border-white/10 rounded-t-3xl sm:rounded-3xl select-none max-h-[92vh] overflow-y-auto text-white"
+      >
+        {/* ── Slide Down Gesture Handle (Mobile) ── */}
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          className="pt-2 pb-1 sm:hidden flex justify-center cursor-pointer"
+        >
+          <div className="w-12 h-1 rounded-full bg-white/20" />
+        </div>
 
         {/* ── Aesthetic Header ── */}
-        <div className="sticky top-0 z-10 bg-[#111113] border-b border-white/8 px-6 pt-5 pb-4">
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          className="sticky top-0 z-10 bg-[#111113] border-b border-white/8 px-6 pt-3 pb-4"
+        >
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-bold tracking-widest uppercase text-blue-400 mb-0.5">
@@ -97,12 +131,26 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                 {alarm ? 'Configure.' : 'Rise.'}
               </h2>
             </div>
-            <button
-              onClick={onClose}
-              className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors"
-            >
-              <X size={16} />
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Back"
+                title="Back"
+                className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors active:scale-95"
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                title="Close"
+                className="mt-1 w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white transition-colors active:scale-95"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
         </div>
 

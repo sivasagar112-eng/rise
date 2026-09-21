@@ -7,6 +7,7 @@ import { BrightnessCameraView } from '../dismissal/BrightnessCameraView';
 import { ClickShakeView } from '../dismissal/ClickShakeView';
 import { ObjectMatchCameraView } from '../dismissal/ObjectMatchCameraView';
 import { Bell, Volume2 } from 'lucide-react';
+import { formatTime12h } from '../../utils/timeFormat';
 
 interface RingingScreenProps {
   alarm: Alarm;
@@ -57,9 +58,19 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
           <span>ALARM FIRING — NO SNOOZE</span>
         </div>
 
-        <div className="text-5xl sm:text-6xl font-normal tracking-tight font-tabular mb-1 text-theme-text">
-          {alarm.time}
-        </div>
+        {(() => {
+          const { timeStr, period } = formatTime12h(alarm.time);
+          return (
+            <div className="flex items-baseline justify-center space-x-2 mb-1">
+              <span className="text-5xl sm:text-6xl font-normal tracking-tight font-tabular text-theme-text">
+                {timeStr}
+              </span>
+              <span className="text-xl sm:text-2xl font-bold tracking-wider text-blue-500">
+                {period}
+              </span>
+            </div>
+          );
+        })()}
         <div className="text-sm font-medium tracking-wide text-theme-subtext mb-3">
           {alarm.label}
         </div>

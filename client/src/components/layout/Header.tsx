@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MoreVertical, Settings, Sun, Moon } from 'lucide-react';
 import { Alarm } from '../../types/alarm';
+import { getNextUpcomingAlarmCountdown } from '../../utils/timeFormat';
 
 interface HeaderProps {
   theme: 'dark' | 'light';
@@ -31,32 +32,13 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
 
-  // Calculate upcoming alarm time subtitle matching the screenshot
+  // Calculate upcoming alarm time subtitle matching the screenshot (e.g. "Next alarm in 6 minutes")
   const getHeaderSubtitle = () => {
-    const enabled = alarms.filter(a => a.isEnabled);
-    if (enabled.length === 0) {
+    const countdown = getNextUpcomingAlarmCountdown(alarms);
+    if (!countdown) {
       return 'All alarms turned off';
     }
-
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    let minDiff = Infinity;
-
-    for (const alarm of enabled) {
-      const [h, m] = alarm.time.split(':').map(Number);
-      let diff = (h * 60 + m) - currentMinutes;
-      if (diff <= 0) diff += 24 * 60;
-      if (diff < minDiff) {
-        minDiff = diff;
-      }
-    }
-
-    const diffHours = Math.floor(minDiff / 60);
-    const diffMins = minDiff % 60;
-    if (diffHours === 0) {
-      return `Alarm in ${diffMins} minutes`;
-    }
-    return `Alarm in ${diffHours} hours ${diffMins} minutes`;
+    return countdown;
   };
 
   return (

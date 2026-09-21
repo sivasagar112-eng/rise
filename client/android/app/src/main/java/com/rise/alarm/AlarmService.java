@@ -108,7 +108,7 @@ public class AlarmService extends Service {
             : dismissalType != null ? dismissalType.replace("_", " ") : "Wake-Up Challenge";
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("⏰ Rise — " + alarmTime)
+            .setContentTitle("⏰ Rise — " + formatTime12h(alarmTime))
             .setContentText("Wake up! Complete: " + taskText)
             .setSmallIcon(R.drawable.ic_alarm_notification)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -316,5 +316,19 @@ public class AlarmService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private String formatTime12h(String time24) {
+        if (time24 == null || !time24.contains(":")) return time24;
+        try {
+            String[] parts = time24.split(":");
+            int h = Integer.parseInt(parts[0].trim());
+            int m = Integer.parseInt(parts[1].trim());
+            String period = h >= 12 ? "PM" : "AM";
+            int h12 = h % 12 == 0 ? 12 : h % 12;
+            return String.format(java.util.Locale.US, "%d:%02d %s", h12, m, period);
+        } catch (Exception e) {
+            return time24;
+        }
     }
 }

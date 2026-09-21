@@ -1,6 +1,7 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Alarm } from '../types/alarm';
+import { formatTime12h } from '../utils/timeFormat';
 
 const CHANNEL_ID = 'rise_alarm_channel_v1';
 
@@ -182,7 +183,7 @@ export class AlarmNotificationService {
           {
             id: 888888,
             title: "⏰ Time's up",
-            body: `Rise • ${alarm.time} • ${taskText}`,
+            body: `Rise • ${formatTime12h(alarm.time).formatted} • ${taskText}`,
             schedule: { at: new Date(Date.now() + 50) },
             channelId: CHANNEL_ID,
             actionTypeId: 'RISE_ALARM_ACTIONS',
@@ -327,7 +328,7 @@ export class AlarmNotificationService {
         // Also schedule a Capacitor LocalNotification as backup (for web & as fallback)
         notificationsToSchedule.push({
           id: notifId,
-          title: `⏰ Alarm — ${alarm.time}`,
+          title: `⏰ Alarm — ${formatTime12h(alarm.time).formatted}`,
           body: `Time to wake up! Complete your ${alarm.dismissalType.replace('_', ' ')} task now.`,
           schedule: {
             at: nextDate,

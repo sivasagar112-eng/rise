@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Alarm } from '../../types/alarm';
 import { Trash2 } from 'lucide-react';
+import { formatTime12h } from '../../utils/timeFormat';
 
 interface AlarmCardProps {
   alarm: Alarm;
@@ -21,15 +22,6 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isLongPressRef = useRef(false);
   const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  // Convert 24h (e.g. "06:46" or "18:30") to 12h format
-  const formatTime12h = (time24: string) => {
-    const [h, m] = time24.split(':').map(Number);
-    const period = h >= 12 ? 'PM' : 'AM';
-    const hours12 = h % 12 === 0 ? 12 : h % 12;
-    const minutesStr = String(m).padStart(2, '0');
-    return { timeStr: `${hours12}:${minutesStr}`, period };
-  };
 
   const { timeStr, period } = formatTime12h(alarm.time);
 

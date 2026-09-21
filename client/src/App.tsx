@@ -14,6 +14,9 @@ import { ProfileScreen } from './components/profile/ProfileScreen';
 import { SettingsScreen } from './components/settings/SettingsScreen';
 import { CameraPermissionModal } from './components/onboarding/CameraPermissionModal';
 import { DynamicIslandAlarm } from './components/common/DynamicIslandAlarm';
+import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast';
+import { useBackNavigation } from './hooks/useBackNavigation';
+import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
 import { BellOff } from 'lucide-react';
 
@@ -28,6 +31,15 @@ export const App: React.FC = () => {
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!StorageService.hasSeenOnboarding());
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  const showToast = React.useCallback((text: string, icon: 'clock' | 'info' = 'clock') => {
+    setToast({
+      id: String(Date.now()),
+      text,
+      icon,
+    });
+  }, []);
 
   const handleAlarmTrigger = React.useCallback((triggeredAlarm: Alarm) => {
     console.log(`[Rise Engine] Alarm triggered: ${triggeredAlarm.time}`);
@@ -41,6 +53,23 @@ export const App: React.FC = () => {
   } = useAlarmScheduler({
     alarms,
     onAlarmTrigger: handleAlarmTrigger,
+  });
+
+  // Professional Android back button & edge swipe-to-go-back gesture handling
+  useBackNavigation({
+    activeRingingAlarm,
+    isEditorOpen,
+    closeEditor: React.useCallback(() => {
+      setIsEditorOpen(false);
+      setEditingAlarm(null);
+    }, []),
+    isSettingsOpen,
+    closeSettings: React.useCallback(() => setIsSettingsOpen(false), []),
+    showOnboarding,
+    closeOnboarding: React.useCallback(() => setShowOnboarding(false), []),
+    activeTab,
+    setActiveTab,
+    showToast,
   });
 
   // Preload ML models (MoveNet + COCO-SSD) in background at app startup
@@ -67,11 +96,28 @@ export const App: React.FC = () => {
 
   // Alarm CRUD
   const handleToggleAlarm = async (id: string) => {
-    const updated = alarms.map((a) =>
-      a.id === id ? { ...a, isEnabled: !a.isEnabled } : a
-    );
+    let justEnabledAlarm: Alarm | undefined;
+    const updated = alarms.map((a) => {
+      if (a.id === id) {
+        const nextState = !a.isEnabled;
+        const updatedAlarm = { ...a, isEnabled: nextState };
+        if (nextState) {
+          justEnabledAlarm = updatedAlarm;
+        }
+        return updatedAlarm;
+      }
+      return a;
+    });
     setAlarms(updated);
     StorageService.saveAlarms(updated);
+
+    if (justEnabledAlarm) {
+      const { formattedText } = getTimeUntilAlarm(
+        justEnabledAlarm.time,
+        justEnabledAlarm.daysOfWeek
+      );
+      showToast(formattedText, 'clock');
+    }
 
     const user = StorageService.getUser();
     if (user?.token) {
@@ -87,6 +133,12 @@ export const App: React.FC = () => {
     setAlarms([...updatedAlarms]);
     setIsEditorOpen(false);
     setEditingAlarm(null);
+
+    // If saved alarm is enabled, show the "Next alarm in X minutes" toast matching screenshot
+    if (alarm.isEnabled) {
+      const { formattedText } = getTimeUntilAlarm(alarm.time, alarm.daysOfWeek);
+      showToast(formattedText, 'clock');
+    }
 
     const user = StorageService.getUser();
     if (user?.token) {
@@ -258,8 +310,14 @@ export const App: React.FC = () => {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="w-full max-w-md bg-theme-card border border-theme-border rounded-2xl max-h-[90vh] overflow-y-auto">
+        <div
+          onClick={() => setIsSettingsOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-theme-card border border-theme-border rounded-2xl max-h-[90vh] overflow-y-auto"
+          >
             <SettingsScreen
               theme={theme}
               onToggleTheme={toggleTheme}
@@ -286,6 +344,9 @@ export const App: React.FC = () => {
       {showOnboarding && (
         <CameraPermissionModal onDismiss={() => setShowOnboarding(false)} />
       )}
+
+      {/* Next Alarm Countdown Toast Pill (Floating at Bottom) */}
+      <NextAlarmToast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 };

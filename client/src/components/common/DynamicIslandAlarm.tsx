@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alarm } from '../../types/alarm';
 import { Hourglass, RotateCw, X } from 'lucide-react';
+import { formatTime12h } from '../../utils/timeFormat';
 
 interface DynamicIslandAlarmProps {
   alarm: Alarm;
@@ -50,7 +51,7 @@ export const DynamicIslandAlarm: React.FC<DynamicIslandAlarmProps> = ({
               Time's up
             </span>
             <span className="text-xs text-neutral-400 font-medium tracking-wide truncate mt-0.5">
-              Alarm • {alarm.time} • {getTaskSubtitle()}
+              Alarm • {formatTime12h(alarm.time).formatted} • {getTaskSubtitle()}
             </span>
           </div>
         </div>
