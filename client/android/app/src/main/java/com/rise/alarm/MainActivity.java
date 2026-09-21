@@ -15,6 +15,8 @@ import com.getcapacitor.BridgeActivity;
 
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "RiseMainActivity";
@@ -182,13 +184,9 @@ public class MainActivity extends BridgeActivity {
             }
         };
 
-        if (getBridge() != null && getBridge().getWebView() != null) {
-            // Immediate dispatch if app was already running in foreground
-            dispatchRunnable.run();
-            // Staggered retries across cold-start window (400ms, 1000ms, 2000ms, 3000ms)
-            for (int delayMs : new int[]{400, 1000, 2000, 3000}) {
-                getBridge().getWebView().postDelayed(dispatchRunnable, delayMs);
-            }
+        Handler handler = new Handler(Looper.getMainLooper());
+        for (int delayMs : new int[]{0, 400, 1000, 2000, 3500}) {
+            handler.postDelayed(dispatchRunnable, delayMs);
         }
     }
 

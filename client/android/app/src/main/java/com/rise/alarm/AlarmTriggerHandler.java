@@ -23,7 +23,7 @@ public class AlarmTriggerHandler {
                 PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
                 if (pm != null) {
                     wakeLock = pm.newWakeLock(
-                        PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        PowerManager.PARTIAL_WAKE_LOCK,
                         "rise:trigger_wakelock"
                     );
                 }
@@ -34,6 +34,27 @@ public class AlarmTriggerHandler {
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to acquire wake lock", e);
+        }
+    }
+
+    /**
+     * Turn on physical screen if it is currently dark / interactive is false.
+     */
+    public static void wakeScreen(Context context) {
+        try {
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isInteractive()) {
+                @SuppressWarnings("deprecation")
+                PowerManager.WakeLock screenLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE,
+                    "rise:screen_trigger_lock"
+                );
+                screenLock.acquire(8000L);
+                screenLock.release();
+                Log.d(TAG, "Screen bright wake lock pulsed to turn screen on");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to pulse screen wake lock", e);
         }
     }
 
@@ -96,6 +117,9 @@ public class AlarmTriggerHandler {
 
         // 1. Hold partial wake lock from trigger until task Activity reports it is resumed
         acquireWakeLock(context);
+
+        // 1b. Ensure physical screen is powered on if device is dark
+        wakeScreen(context);
 
         // 2. Check foreground state properly using ActivityLifecycleCallbacks counter
         KeyguardManager km = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);

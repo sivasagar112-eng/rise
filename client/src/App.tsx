@@ -50,6 +50,7 @@ export const App: React.FC = () => {
     activeRingingAlarm,
     testAlarmImmediately,
     completeDismissal,
+    clearDismissal,
   } = useAlarmScheduler({
     alarms,
     onAlarmTrigger: handleAlarmTrigger,
@@ -112,6 +113,7 @@ export const App: React.FC = () => {
     StorageService.saveAlarms(updated);
 
     if (justEnabledAlarm) {
+      clearDismissal(justEnabledAlarm.id);
       const { formattedText } = getTimeUntilAlarm(
         justEnabledAlarm.time,
         justEnabledAlarm.daysOfWeek
@@ -126,6 +128,11 @@ export const App: React.FC = () => {
   };
 
   const handleSaveAlarm = async (alarm: Alarm) => {
+    // Clear any past dismissal so updated alarm rings cleanly
+    if (alarm.isEnabled) {
+      clearDismissal(alarm.id);
+    }
+
     // Update localStorage first
     const updatedAlarms = StorageService.addOrUpdateAlarm(alarm);
     

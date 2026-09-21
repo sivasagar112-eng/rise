@@ -20,6 +20,7 @@ import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.content.pm.ServiceInfo;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -70,13 +71,36 @@ public class AlarmService extends Service {
 
         Log.d(TAG, "AlarmService started for alarm: " + alarmId + " at " + alarmTime);
 
-        // Acquire wake lock
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "rise:alarm_service_wakelock"
-        );
-        wakeLock.acquire(10 * 60 * 1000L); // 10 minutes max
+        // Acquire wake lock safely
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "rise:alarm_service_wakelock"
+                );
+                wakeLock.acquire(10 * 60 * 1000L); // 10 minutes max
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to acquire wake lock in AlarmService", e);
+        }
+
+        // Pulse screen on if device is dark
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isInteractive()) {
+                @SuppressWarnings("deprecation")
+                PowerManager.WakeLock screenLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE,
+                    "rise:alarm_service_screenlock"
+                );
+                screenLock.acquire(10000L);
+                screenLock.release();
+                Log.d(TAG, "AlarmService: Screen bright wake lock pulsed");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Screen wake lock exception", e);
+        }
 
         // Build the full-screen intent to launch the app
         Intent launchIntent = new Intent(this, MainActivity.class);
@@ -125,7 +149,11 @@ public class AlarmService extends Service {
             .setAutoCancel(false)
             .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
 
         // Play alarm sound
         playAlarmSound();
@@ -158,31 +186,50 @@ public class AlarmService extends Service {
                 mediaPlayer = null;
             }
 
-            // 2. Play our smooth, non-jarring custom morning tone (rise_alarm.wav)
+            // Ensure alarm audio volume is audible
+            try {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                if (am != null) {
+                    int maxVol = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+                    int curVol = am.getStreamVolume(AudioManager.STREAM_ALARM);
+                    if (curVol == 0) {
+                        am.setStreamVolume(AudioManager.STREAM_ALARM, Math.max(1, (int)(maxVol * 0.7f)), 0);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not adjust alarm stream volume", e);
+            }
+
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+
             int resId = getResources().getIdentifier("rise_alarm", "raw", getPackageName());
             if (resId != 0) {
-                mediaPlayer = MediaPlayer.create(this, resId);
-                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build());
-            } else {
-                // Fallback to gentle notification tone instead of harsh alarm
-                Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    mediaPlayer = MediaPlayer.create(this, resId, audioAttributes, 0);
+                } else {
+                    mediaPlayer = MediaPlayer.create(this, resId);
+                }
+            }
+
+            if (mediaPlayer == null) {
+                Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                if (soundUri == null) {
+                    soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                }
                 if (soundUri == null) {
                     soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
                 }
                 mediaPlayer = new MediaPlayer();
+                mediaPlayer.setAudioAttributes(audioAttributes);
                 mediaPlayer.setDataSource(this, soundUri);
-                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build());
                 mediaPlayer.prepare();
             }
 
             mediaPlayer.setLooping(true);
-            currentVolume = 0.05f;
+            currentVolume = 0.1f;
             mediaPlayer.setVolume(currentVolume, currentVolume);
             mediaPlayer.start();
 
@@ -196,7 +243,7 @@ public class AlarmService extends Service {
 
                     long elapsed = System.currentTimeMillis() - startTime;
                     float progress = Math.min(1.0f, (float) elapsed / rampDurationMs);
-                    currentVolume = 0.05f + progress * 0.95f;
+                    currentVolume = 0.1f + progress * 0.9f;
                     mediaPlayer.setVolume(currentVolume, currentVolume);
 
                     if (progress < 1.0f) {
@@ -242,7 +289,8 @@ public class AlarmService extends Service {
                 NotificationManager.IMPORTANCE_HIGH
             );
             channel.setDescription("Active alarm notification");
-            channel.enableVibration(false);
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[]{0, 500, 500, 500});
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             channel.setBypassDnd(true);
             channel.setSound(null, null); // Sound handled by dedicated MediaPlayer

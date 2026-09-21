@@ -34,7 +34,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
   const [period, setPeriod] = useState<'AM' | 'PM'>(initH >= 12 ? 'PM' : 'AM');
 
   const [label, setLabel] = useState<string>(alarm ? alarm.label : '');
-  const [daysOfWeek, setDaysOfWeek] = useState<number[]>(alarm ? alarm.daysOfWeek : [1, 2, 3, 4, 5]);
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>(alarm ? alarm.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]);
   const dismissalType: DismissalType = alarm?.dismissalType === 'FACE_AWAY' ? 'CLICK_SHAKE' : (alarm?.dismissalType || 'PUSHUP_MATH');
   const [pushupTarget, setPushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
   const [rampDuration, setRampDuration] = useState<number>(alarm ? alarm.rampDuration : 30);

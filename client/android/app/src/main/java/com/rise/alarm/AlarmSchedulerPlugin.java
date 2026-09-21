@@ -244,6 +244,25 @@ public class AlarmSchedulerPlugin extends Plugin {
     }
 
     /**
+     * Request exact alarm scheduling permission by opening system settings on Android 12+
+     */
+    @PluginMethod
+    public void requestExactAlarmPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager am = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            if (am != null && !am.canScheduleExactAlarms()) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                intent.setData(android.net.Uri.parse("package:" + getContext().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+            }
+        }
+        JSObject result = new JSObject();
+        result.put("success", true);
+        call.resolve(result);
+    }
+
+    /**
      * Retrieve any pending alarm that caused the app to launch or ring
      */
     @PluginMethod
@@ -280,6 +299,11 @@ public class AlarmSchedulerPlugin extends Plugin {
         int pushupTarget, int rampDuration
     ) {
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) {
+            Log.e(TAG, "AlarmManager service is null, cannot schedule alarm");
+            return;
+        }
+
         PendingIntent alarmIntent = createAlarmPendingIntent(
             context, alarmId, alarmTime, alarmLabel, dismissalType, pushupTarget, rampDuration
         );
@@ -293,10 +317,26 @@ public class AlarmSchedulerPlugin extends Plugin {
         );
 
         // setAlarmClock is the gold standard for alarm apps
-        AlarmManager.AlarmClockInfo alarmClock = new AlarmManager.AlarmClockInfo(triggerMs, showPendingIntent);
-        am.setAlarmClock(alarmClock, alarmIntent);
-
-        Log.d(TAG, "Native alarm scheduled: " + alarmId + " -> " + triggerMs);
+        try {
+            AlarmManager.AlarmClockInfo alarmClock = new AlarmManager.AlarmClockInfo(triggerMs, showPendingIntent);
+            am.setAlarmClock(alarmClock, alarmIntent);
+            Log.d(TAG, "Native alarm scheduled via setAlarmClock: " + alarmId + " -> " + triggerMs);
+        } catch (SecurityException se) {
+            Log.w(TAG, "setAlarmClock failed with SecurityException, falling back to setExactAndAllowWhileIdle", se);
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, alarmIntent);
+                } else {
+                    am.setExact(AlarmManager.RTC_WAKEUP, triggerMs, alarmIntent);
+                }
+                Log.d(TAG, "Native alarm scheduled via fallback setExactAndAllowWhileIdle: " + alarmId + " -> " + triggerMs);
+            } catch (Exception ex) {
+                Log.e(TAG, "Fallback exact scheduling failed, using setAndAllowWhileIdle", ex);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, alarmIntent);
+                }
+            }
+        }
     }
 
     private static PendingIntent createAlarmPendingIntent(

@@ -36,6 +36,8 @@ interface AlarmSchedulerPluginInterface {
 
   canScheduleExactAlarms(): Promise<{ canSchedule: boolean }>;
 
+  requestExactAlarmPermission(): Promise<{ success: boolean }>;
+
   getPendingAlarm(): Promise<{
     alarm: {
       alarmId: string;
@@ -254,27 +256,41 @@ export class AlarmNotificationService {
   }
 
   // Calculate the next upcoming Date for an alarm time (HH:mm) and daysOfWeek
-  public static getNextAlarmDate(timeStr: string, daysOfWeek: number[]): Date {
-    const [hours, minutes] = timeStr.split(':').map(Number);
+  public static getNextAlarmDate(timeStr: string, daysOfWeek: number[] = []): Date {
     const now = new Date();
-    const candidate = new Date(now);
-    candidate.setHours(hours, minutes, 0, 0);
+    const [h, m] = (timeStr || '07:00').split(':').map(Number);
 
-    // If candidate time has already passed today, start from tomorrow
-    if (candidate.getTime() <= now.getTime()) {
-      candidate.setDate(candidate.getDate() + 1);
-    }
-
-    // If specific days of week are configured, find the next matching day
-    if (daysOfWeek && daysOfWeek.length > 0) {
-      for (let i = 0; i < 7; i++) {
-        if (daysOfWeek.includes(candidate.getDay())) {
-          break;
+    if (daysOfWeek && daysOfWeek.length > 0 && daysOfWeek.length < 7) {
+      // Find next matching day of week
+      for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
+        const candidate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() + dayOffset,
+          h,
+          m,
+          0,
+          0
+        );
+        if (candidate.getTime() > now.getTime() && daysOfWeek.includes(candidate.getDay())) {
+          return candidate;
         }
-        candidate.setDate(candidate.getDate() + 1);
       }
     }
 
+    // Single alarm (empty daysOfWeek) or everyday (all 7 days)
+    const candidate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      h,
+      m,
+      0,
+      0
+    );
+    if (candidate.getTime() <= now.getTime()) {
+      candidate.setDate(candidate.getDate() + 1);
+    }
     return candidate;
   }
 
