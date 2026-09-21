@@ -1,17 +1,32 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ModelPreloader } from '../../services/ModelPreloader';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { MapPin, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { MapPin, Check, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { synth } from '../../services/WebAudioSynth';
 
 interface ObjectMatchCameraViewProps {
   onComplete: () => void;
 }
 
-// COCO-SSD valid household targets — only classes that actually exist in COCO's 80-class label set
-// and that lite_mobilenet_v2 can reliably detect on mobile.
-// Removed: 'sink' (not a COCO class), 'spoon'/'fork'/'toothbrush' (too small for lite model)
-const HOUSEHOLD_TARGETS = [
-  'cup', 'bottle', 'bowl', 'cell phone', 'remote', 'book', 'clock', 'keyboard', 'mouse', 'laptop'
+interface TargetItem {
+  id: string;
+  name: string;
+  synonyms: string[];
+  emoji: string;
+}
+
+// Expanded household targets with synonym mappings for maximum mobile reliability
+const HOUSEHOLD_TARGETS: TargetItem[] = [
+  { id: 'bottle', name: 'Bottle / Drink', synonyms: ['bottle', 'cup', 'wine glass'], emoji: '🍶' },
+  { id: 'cup', name: 'Cup / Mug', synonyms: ['cup', 'mug', 'cup/mug', 'glass', 'wine glass', 'bottle'], emoji: '☕' },
+  { id: 'cell phone', name: 'Phone', synonyms: ['cell phone', 'phone', 'remote'], emoji: '📱' },
+  { id: 'book', name: 'Book / Notebook', synonyms: ['book', 'notebook'], emoji: '📖' },
+  { id: 'remote', name: 'Remote Control', synonyms: ['remote', 'cell phone'], emoji: '📺' },
+  { id: 'clock', name: 'Clock / Watch', synonyms: ['clock'], emoji: '⏰' },
+  { id: 'chair', name: 'Chair / Bed', synonyms: ['chair', 'couch', 'bed'], emoji: '🪑' },
+  { id: 'laptop', name: 'Laptop / Computer', synonyms: ['laptop', 'keyboard', 'tv'], emoji: '💻' },
+  { id: 'bowl', name: 'Bowl / Plate', synonyms: ['bowl'], emoji: '🥣' },
+  { id: 'backpack', name: 'Backpack / Bag', synonyms: ['backpack', 'handbag', 'suitcase'], emoji: '🎒' },
 ];
 
 export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
@@ -23,9 +38,13 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const completedRef = useRef(false);
 
-  // Pick a random target object once on mount
-  const [randomTarget] = useState(() => HOUSEHOLD_TARGETS[Math.floor(Math.random() * HOUSEHOLD_TARGETS.length)]);
-  const expectedObjects = [randomTarget];
+  // Target object state with support for re-rolling
+  const [targetIndex, setTargetIndex] = useState(() => Math.floor(Math.random() * HOUSEHOLD_TARGETS.length));
+  const currentTarget = HOUSEHOLD_TARGETS[targetIndex];
+  const currentTargetRef = useRef(currentTarget);
+  useEffect(() => {
+    currentTargetRef.current = currentTarget;
+  }, [currentTarget]);
 
   type Phase = 'INITIALIZING' | 'SCANNING' | 'DETECTED' | 'ERROR';
   const [phase, setPhase] = useState<Phase>('INITIALIZING');
@@ -33,7 +52,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   const [detectedLabel, setDetectedLabel] = useState('');
   const [scanProgress, setScanProgress] = useState(0);
   const [confirmedFrames, setConfirmedFrames] = useState(0);
-  const [debugLabels, setDebugLabels] = useState('');  // Real-time debug overlay
+  const [debugLabels, setDebugLabels] = useState(''); // Real-time debug overlay
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
@@ -44,6 +63,16 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   }, [onComplete]);
 
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+
+  const handleRerollTarget = () => {
+    setConfirmedFrames(0);
+    setScanProgress(0);
+    setDetectedLabel('');
+    setTargetIndex((prev) => (prev + 1) % HOUSEHOLD_TARGETS.length);
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(25);
+    }
+  };
 
   // 1. Load AI model via preloader (near-instant if already preloaded)
   useEffect(() => {
@@ -73,13 +102,11 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   }, []);
 
   // 2. Start/Restart Camera when facingMode changes
-  // IMPORTANT: Camera starts independently of AI model loading — user sees live preview immediately
   useEffect(() => {
     let isCurrentEffect = true;
     let mounted = true;
 
     const startCamera = async () => {
-      // Clean up any existing stream before creating a new one
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
@@ -140,7 +167,6 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
             tryPlay();
           }
 
-          // Move to SCANNING as soon as camera is live (even if AI isn't ready yet)
           setPhase('SCANNING');
           console.log('[ObjectMatch] Camera started — phase=SCANNING');
           return;
@@ -180,13 +206,13 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
     };
   }, [facingMode]);
 
-  // AI Detection Loop
+  // 3. AI Detection Loop (Snappy 3-frame confirmation + 0.20 score threshold)
   useEffect(() => {
     if (phase !== 'SCANNING') return;
     let confirmed = 0;
     let consecutiveMisses = 0;
-    const REQUIRED_FRAMES = 5;
-    const MAX_MISSES_BEFORE_RESET = 30; // Reset confirmed count after 30 consecutive misses
+    const REQUIRED_FRAMES = 3;
+    const MAX_MISSES_BEFORE_RESET = 25;
 
     const tick = async () => {
       if (completedRef.current) return;
@@ -201,20 +227,18 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
       try {
         const predictions = await model.detect(video);
 
-        // Build debug string showing ALL detections
+        // Build debug string showing detections
         const allDetections = predictions
-          .filter(p => p.score > 0.15) // Show anything above 15% in debug
+          .filter(p => p.score > 0.15)
           .map(p => `${p.class}(${(p.score * 100).toFixed(0)}%)`)
           .join(', ');
-        setDebugLabels(allDetections || 'No objects detected');
+        setDebugLabels(allDetections || 'Scanning for target...');
 
-        // Lower threshold to 0.25 for lite_mobilenet_v2 on mobile
-        const match = predictions.find(p =>
-          expectedObjects.some(obj =>
-            p.class.toLowerCase().includes(obj) || obj.includes(p.class.toLowerCase())
-          )
-          && p.score > 0.25
-        );
+        const targetSynonyms = currentTargetRef.current.synonyms;
+        const match = predictions.find(p => {
+          const pName = p.class.toLowerCase();
+          return targetSynonyms.some(syn => pName.includes(syn) || syn.includes(pName)) && p.score > 0.20;
+        });
 
         if (match) {
           confirmed++;
@@ -225,21 +249,21 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
 
           if (confirmed >= REQUIRED_FRAMES && !completedRef.current) {
             completedRef.current = true;
+            synth.playSuccessTone();
             setPhase('DETECTED');
             setTimeout(() => {
               streamRef.current?.getTracks().forEach(t => t.stop());
               onCompleteRef.current();
-            }, 1200);
+            }, 1000);
             return;
           }
         } else {
           consecutiveMisses++;
-          // Reset confirmed count after too many consecutive misses (prevents stale half-matches)
           if (consecutiveMisses > MAX_MISSES_BEFORE_RESET && confirmed > 0) {
             confirmed = 0;
             setConfirmedFrames(0);
           }
-          setScanProgress(p => Math.max(0, p - 3));
+          setScanProgress(p => Math.max(0, p - 5));
         }
       } catch (_) {
         // silent catch to maintain frame loop
@@ -252,7 +276,6 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   // Global cleanup
@@ -289,12 +312,25 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
       </div>
 
       <h2 className="text-2xl font-bold tracking-tight text-theme-text mb-1">
-        {phase === 'DETECTED' ? `Found the ${randomTarget}!` : `Find a ${randomTarget}`}
+        {phase === 'DETECTED' ? `Found the ${currentTarget.name}!` : `Find a ${currentTarget.name}`}
       </h2>
+
+      {/* Target item indicator & Try Another Object button */}
+      {phase === 'SCANNING' && (
+        <button
+          type="button"
+          onClick={handleRerollTarget}
+          className="mb-2 px-3 py-1 rounded-full bg-theme-card border border-theme-border text-xs font-semibold text-blue-400 hover:text-blue-300 active:scale-95 transition-all flex items-center gap-1.5 shadow-sm"
+        >
+          <RefreshCw size={12} />
+          <span>Try Another Object</span>
+        </button>
+      )}
+
       <p className="text-xs text-theme-subtext max-w-xs mb-1">
         {phase === 'DETECTED'
           ? `Detected: ${detectedLabel}`
-          : 'Move slowly — AI is scanning for objects'
+          : 'Hold camera steady on the object'
         }
       </p>
 
@@ -315,6 +351,19 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
           className="w-full h-full object-cover"
         />
 
+        {/* Center Target Crosshair / Reticle */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className={`w-36 h-36 border-2 border-dashed rounded-2xl transition-all duration-200 flex items-center justify-center ${
+              confirmedFrames > 0
+                ? 'border-green-400 scale-105 bg-green-500/10 shadow-lg shadow-green-500/20'
+                : 'border-white/30'
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full ${confirmedFrames > 0 ? 'bg-green-400 animate-ping' : 'bg-white/40'}`} />
+          </div>
+        </div>
+
         <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
           <div className="flex justify-between items-start w-full">
             <button
@@ -325,17 +374,17 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><circle cx="12" cy="12" r="3"/><path d="m18 22-3-3 3-3"/><path d="m6 2 3 3-3 3"/></svg>
             </button>
             <div className="text-right text-[10px] font-bold text-white bg-black/50 px-2 py-0.5 rounded">
-              {confirmedFrames}/{5} confirmed
+              {confirmedFrames}/3 confirmed
             </div>
           </div>
           <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 rounded-lg">
             {!isAiReady
               ? <span className="flex items-center justify-center gap-1"><Loader2 size={12} className="animate-spin" /> AI warming up...</span>
               : isOfflineMode
-                ? `⚡ On-Device Mode: Scan ${randomTarget}`
+                ? `⚡ On-Device Mode: Scan ${currentTarget.name}`
                 : detectedLabel
                   ? `Seeing: ${detectedLabel}`
-                  : `Looking for a ${randomTarget}…`}
+                  : `Looking for ${currentTarget.name}…`}
           </div>
         </div>
 
@@ -343,7 +392,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
             <Check size={48} className="text-green-400 mb-2" />
             <span className="text-sm font-extrabold tracking-wider text-white uppercase">
-              {randomTarget} Verified!
+              {currentTarget.name} Verified!
             </span>
           </div>
         )}
@@ -384,7 +433,7 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
             }}
             className="text-xs font-bold py-2 px-4 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all flex items-center space-x-2 shadow-sm"
           >
-            <span>Confirm {randomTarget} (Offline)</span>
+            <span>Confirm {currentTarget.name} (Offline)</span>
           </button>
         </div>
       )}

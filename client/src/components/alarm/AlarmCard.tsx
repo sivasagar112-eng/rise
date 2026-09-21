@@ -55,8 +55,9 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
         return `${alarm.pushupTarget || 5} Pushups`;
       case 'BRIGHTNESS':
         return 'Light Check';
+      case 'CLICK_SHAKE':
       case 'FACE_AWAY':
-        return 'Face-Away';
+        return '100 Taps + 5 Shakes';
       case 'OBJECT_MATCH':
         return 'Object Scan';
       case 'MATH':

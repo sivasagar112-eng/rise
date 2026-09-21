@@ -20,8 +20,8 @@ export const DynamicIslandAlarm: React.FC<DynamicIslandAlarmProps> = ({
     if (alarm.dismissalType === 'BRIGHTNESS') {
       return 'Light Check • Turn lights on';
     }
-    if (alarm.dismissalType === 'FACE_AWAY') {
-      return 'Face-Away • Get out of bed';
+    if (alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY') {
+      return '100 Taps + 5 Shakes';
     }
     if (alarm.dismissalType === 'OBJECT_MATCH') {
       return 'Object Scan • Scan item';

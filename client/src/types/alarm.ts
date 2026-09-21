@@ -1,6 +1,7 @@
 export type DismissalType =
   | 'PUSHUP_MATH'
   | 'BRIGHTNESS'
+  | 'CLICK_SHAKE'
   | 'FACE_AWAY'
   | 'OBJECT_MATCH'
   | 'MATH';

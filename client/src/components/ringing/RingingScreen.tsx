@@ -4,7 +4,7 @@ import { synth } from '../../services/WebAudioSynth';
 import { PushupCameraView } from '../dismissal/PushupCameraView';
 import { MathChallengeView } from '../dismissal/MathChallengeView';
 import { BrightnessCameraView } from '../dismissal/BrightnessCameraView';
-import { FaceAwayCameraView } from '../dismissal/FaceAwayCameraView';
+import { ClickShakeView } from '../dismissal/ClickShakeView';
 import { ObjectMatchCameraView } from '../dismissal/ObjectMatchCameraView';
 import { Bell, Volume2 } from 'lucide-react';
 
@@ -72,8 +72,8 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
       <div className="w-full max-w-md mx-auto flex-1 flex flex-col items-center justify-center my-4">
         {alarm.dismissalType === 'BRIGHTNESS' ? (
           <BrightnessCameraView onComplete={handleAllTasksDone} />
-        ) : alarm.dismissalType === 'FACE_AWAY' ? (
-          <FaceAwayCameraView onComplete={handleAllTasksDone} />
+        ) : alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY' ? (
+          <ClickShakeView onComplete={handleAllTasksDone} />
         ) : alarm.dismissalType === 'OBJECT_MATCH' ? (
           <ObjectMatchCameraView onComplete={handleAllTasksDone} />
         ) : alarm.dismissalType === 'MATH' ? (

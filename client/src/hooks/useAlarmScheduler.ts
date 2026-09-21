@@ -1,9 +1,22 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Alarm } from '../types/alarm';
+import { Alarm, DismissalType } from '../types/alarm';
 import { synth } from '../services/WebAudioSynth';
 import { AlarmNotificationService } from '../services/AlarmNotificationService';
 import { StorageService } from '../services/StorageService';
+
+const TASK_POOL: DismissalType[] = [
+  'PUSHUP_MATH',
+  'CLICK_SHAKE',
+  'BRIGHTNESS',
+  'OBJECT_MATCH',
+  'MATH',
+];
+
+function getRandomDismissalTask(): DismissalType {
+  const index = Math.floor(Math.random() * TASK_POOL.length);
+  return TASK_POOL[index];
+}
 
 interface UseAlarmSchedulerProps {
   alarms: Alarm[];
@@ -43,8 +56,17 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       return;
     }
 
-    activeAlarmIdRef.current = alarm.id;
-    setActiveRingingAlarm(alarm);
+    // Pick random task from the 5 available tasks
+    const randomDismissal = getRandomDismissalTask();
+    const runtimeAlarm: Alarm = {
+      ...alarm,
+      dismissalType: randomDismissal,
+      pushupTarget: alarm.pushupTarget || 5,
+    };
+    console.log(`[useAlarmScheduler] Random task selected for alarm ${alarm.id}: ${randomDismissal}`);
+
+    activeAlarmIdRef.current = runtimeAlarm.id;
+    setActiveRingingAlarm(runtimeAlarm);
     const now = performance.now();
     setAlarmTriggerTimestamp(now);
 
@@ -53,18 +75,18 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
     // On web, WebAudioSynth is the sole audio player.
     if (Capacitor.isNativePlatform()) {
       console.log('[useAlarmScheduler] Native Android: Starting single AlarmService audio instance');
-      AlarmNotificationService.startNativeRinging(alarm);
+      AlarmNotificationService.startNativeRinging(runtimeAlarm);
       // Ensure WebAudioSynth is stopped on native to prevent duplicate audio clash
       synth.stopAlarm();
     } else {
       console.log('[useAlarmScheduler] Web environment: Starting single WebAudioSynth audio instance');
-      synth.startAlarm(alarm.rampDuration);
+      synth.startAlarm(runtimeAlarm.rampDuration);
     }
 
-    onAlarmTriggerRef.current(alarm);
+    onAlarmTriggerRef.current(runtimeAlarm);
 
     // Trigger high-priority heads-up banner notification on Android & iOS
-    AlarmNotificationService.showRingingNotification(alarm);
+    AlarmNotificationService.showRingingNotification(runtimeAlarm);
   }, []);
 
   // Initialize native background AlarmNotificationService

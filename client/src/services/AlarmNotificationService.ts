@@ -171,8 +171,8 @@ export class AlarmNotificationService {
           ? `${alarm.pushupTarget || 5} Pushups`
           : alarm.dismissalType === 'BRIGHTNESS'
           ? 'Light Check'
-          : alarm.dismissalType === 'FACE_AWAY'
-          ? 'Face-Away'
+          : alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY'
+          ? '100 Taps + 5 Shakes'
           : alarm.dismissalType === 'OBJECT_MATCH'
           ? 'Object Scan'
           : 'Math Challenge';

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Camera, Activity, SunMedium, EyeOff, Calculator, Check } from 'lucide-react';
+import { X, Trash2, Camera, Activity, SunMedium, Zap, Shuffle, Calculator, Check } from 'lucide-react';
 import { useCameraVision } from '../../hooks/useCameraVision';
 import { ScrollPicker } from './ScrollPicker';
 
@@ -39,12 +39,12 @@ const DISMISSAL_OPTIONS = [
     color: 'text-yellow-400',
   },
   {
-    type: 'FACE_AWAY' as DismissalType,
-    icon: EyeOff,
-    title: 'Face-Away',
-    badge: '',
-    desc: 'Forces you out of bed — front camera must not see your resting face for 3s.',
-    color: 'text-purple-400',
+    type: 'CLICK_SHAKE' as DismissalType,
+    icon: Zap,
+    title: '100 Taps + 5 Shakes',
+    badge: 'High Energy',
+    desc: 'Tap the screen 100 times, then shake your phone 5 times to dismiss.',
+    color: 'text-amber-400',
   },
   {
     type: 'OBJECT_MATCH' as DismissalType,
@@ -79,7 +79,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
   const [label, setLabel] = useState<string>(alarm ? alarm.label : '');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(alarm ? alarm.daysOfWeek : [1, 2, 3, 4, 5]);
   const [dismissalType, setDismissalType] = useState<DismissalType>(
-    alarm ? alarm.dismissalType : 'PUSHUP_MATH'
+    alarm?.dismissalType === 'FACE_AWAY' ? 'CLICK_SHAKE' : (alarm?.dismissalType || 'PUSHUP_MATH')
   );
   const [pushupTarget, setPushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
   const [rampDuration, setRampDuration] = useState<number>(alarm ? alarm.rampDuration : 30);
@@ -245,9 +245,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
           {/* ── Dismissal Mode ── */}
           <div>
-            <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-500 block mb-3">
-              Wake-Up Challenge
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-500 block">
+                Wake-Up Challenge
+              </label>
+              <div className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                <Shuffle size={10} />
+                <span>Randomized On Wake</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-neutral-400 mb-3">
+              Rise randomly picks one of these 5 challenges every morning to keep you on your toes!
+            </p>
             <div className="space-y-2">
               {DISMISSAL_OPTIONS.map(({ type, icon: Icon, title, badge, desc, color }) => {
                 const isActive = dismissalType === type;

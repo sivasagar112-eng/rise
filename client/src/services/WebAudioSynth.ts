@@ -165,6 +165,56 @@ class WebAudioSynth {
     }
   }
 
+  // Play a crisp, subtle tap pop for the 100-tap challenge
+  public playTapTone(freq: number = 750): void {
+    try {
+      const ctx = this.initContext();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.7, now + 0.04);
+
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.045);
+    } catch {
+      // AudioContext unavailable or error
+    }
+  }
+
+  // Play an energetic upward chirp for each detected phone shake
+  public playShakeChirp(): void {
+    try {
+      const ctx = this.initContext();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(1046.5, now + 0.14); // A4 to C6 sweep
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.16);
+    } catch {
+      // AudioContext unavailable or error
+    }
+  }
+
   // Stop the alarm audio completely
   public stopAlarm(): void {
     this.isPlaying = false;

@@ -103,6 +103,8 @@ public class AlarmService extends Service {
         // Build foreground notification
         String taskText = "PUSHUP_MATH".equals(dismissalType)
             ? pushupTarget + " Pushups"
+            : "CLICK_SHAKE".equals(dismissalType)
+            ? "100 Taps + 5 Shakes"
             : dismissalType != null ? dismissalType.replace("_", " ") : "Wake-Up Challenge";
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
