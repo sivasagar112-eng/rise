@@ -224,12 +224,8 @@ export class OfflineTorsoTracker {
         rawMidX = comX * scaleX;
         rawW = Math.max(80, activeWidth * scaleX);
 
-        // Body presence validation: A moving hand or arm is small (<30% width, <20% height).
-        // A human torso in pushup plank spans at least 30% of screen width and has a vertical torso span >= 18% of screen height.
-        const torsoPixelSpan = rawHY - rawSY;
-        const isSufficientWidth = activeWidth >= sw * 0.28;
-        const isSufficientHeight = activeHeight >= sh * 0.20;
-        if (isSufficientWidth && isSufficientHeight && !isUpright && torsoPixelSpan >= vh * 0.16) {
+        // Optical mass presence check: active movement in front of camera
+        if (totalWeight > 80 && (p90Y - p10Y) >= 10) {
           isBodyTracked = true;
         }
       } else {
@@ -605,15 +601,7 @@ export class PoseDetectionEngine {
       };
     }
 
-    let isTorsoSpanValid = false;
-    if (shoulder && hip) {
-      const torsoDist = Math.hypot(hip.x - shoulder.x, hip.y - shoulder.y);
-      if (torsoDist >= vh * 0.16) {
-        isTorsoSpanValid = true;
-      }
-    }
-
-    const isTracking = Boolean(hasShoulder && hasHip && isTorsoSpanValid && !isUpright);
+    const isTracking = Boolean(hasShoulder || chest !== null || midShoulder !== null);
 
     return {
       keypoints,

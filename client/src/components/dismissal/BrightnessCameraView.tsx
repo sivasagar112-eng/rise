@@ -19,11 +19,22 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
   const [brightnessValue, setBrightnessValue] = useState(0);
   const [brightnessProgress, setBrightnessProgress] = useState(0);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  const handleManualDone = () => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    setBrightnessProgress(100);
+    setTimeout(() => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      onCompleteRef.current();
+    }, 400);
+  };
 
   useEffect(() => {
     let isCurrentEffect = true;
@@ -74,6 +85,7 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
     };
 
     const initCamera = async () => {
+      setCameraError(null);
       // Clean up any existing stream before creating a new one
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
@@ -87,6 +99,9 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
       const maxAttempts = 3;
 
       const attemptGetUserMedia = async (): Promise<MediaStream> => {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('Camera API not available');
+        }
         try {
           return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
@@ -146,6 +161,12 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
 
           if (attempts < maxAttempts && isCurrentEffect && mounted) {
             await new Promise(resolve => setTimeout(resolve, 500));
+          } else if (isCurrentEffect && mounted) {
+            setCameraError(
+              err?.name === 'NotAllowedError'
+                ? 'Camera permission denied.'
+                : 'Camera hardware busy or unavailable.'
+            );
           }
         }
       }
@@ -183,46 +204,60 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
 
       {/* Viewfinder */}
       <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-4 shadow-lg">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          className="w-full h-full object-cover opacity-85"
-        />
-        <canvas ref={canvasRef} className="hidden" />
-
-        <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
-          <div className="flex justify-between items-start w-full">
+        {cameraError ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white bg-neutral-900">
+            <p className="text-xs font-semibold mb-3">{cameraError}</p>
             <button
-              onClick={() => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment')}
-              className="pointer-events-auto p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors backdrop-blur-md"
-              aria-label="Switch Camera"
+              onClick={handleManualDone}
+              className="px-4 py-2 bg-yellow-500 text-black rounded-xl text-xs font-bold"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><circle cx="12" cy="12" r="3"/><path d="m18 22-3-3 3-3"/><path d="m6 2 3 3-3 3"/></svg>
+              Confirm Lights Are On
             </button>
-            <div className="text-right text-[10px] font-medium text-white/80 bg-black/40 px-2 py-0.5 rounded">
-              Luminance: {brightnessValue}
+          </div>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              className="w-full h-full object-cover opacity-85"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+
+            <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
+              <div className="flex justify-between items-start w-full">
+                <button
+                  onClick={() => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment')}
+                  className="pointer-events-auto p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors backdrop-blur-md"
+                  aria-label="Switch Camera"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><circle cx="12" cy="12" r="3"/><path d="m18 22-3-3 3-3"/><path d="m6 2 3 3-3 3"/></svg>
+                </button>
+                <div className="text-right text-[10px] font-medium text-white/80 bg-black/40 px-2 py-0.5 rounded">
+                  Luminance: {brightnessValue}
+                </div>
+              </div>
+
+              <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 rounded-lg">
+                {brightnessProgress > 0 ? 'Light Detected — Hold Steady' : 'Searching for light...'}
+              </div>
             </div>
-          </div>
 
-          <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 rounded-lg">
-            {brightnessProgress > 0 ? 'Light Detected — Hold Steady' : 'Searching for light...'}
-          </div>
-        </div>
-
-        {brightnessProgress >= 100 && (
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
-            <Check size={48} className="text-green-400 mb-2" />
-            <span className="text-sm font-bold tracking-wider text-white uppercase">
-              Room Light Verified
-            </span>
-          </div>
+            {brightnessProgress >= 100 && (
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
+                <Check size={48} className="text-green-400 mb-2" />
+                <span className="text-sm font-bold tracking-wider text-white uppercase">
+                  Room Light Verified
+                </span>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* Sustained Progress Bar */}
-      <div className="w-full max-w-xs mb-4">
+      <div className="w-full max-w-xs mb-3">
         <div className="flex justify-between text-xs font-medium text-theme-subtext mb-1.5">
           <span>Hold Duration</span>
           <span className="font-bold text-theme-text">{brightnessProgress}%</span>
@@ -234,6 +269,14 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
           />
         </div>
       </div>
+
+      {/* Manual completion fallback */}
+      <button
+        onClick={handleManualDone}
+        className="text-xs font-semibold tracking-wide py-2 px-4 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all"
+      >
+        Lights Are On (Confirm)
+      </button>
     </div>
   );
 };

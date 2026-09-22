@@ -119,6 +119,9 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
       const maxAttempts = 3;
 
       const attemptGetUserMedia = async (): Promise<MediaStream> => {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('Camera API not available');
+        }
         try {
           return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
@@ -414,29 +417,33 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
         </div>
       </div>
 
-      {/* On-Device Manual Verification Fallback */}
-      {isOfflineMode && (
-        <div className="flex flex-col items-center space-y-1.5 mt-2">
-          <div className="text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-            ⚡ ON-DEVICE MODE
-          </div>
-          <button
-            onClick={() => {
-              if (!completedRef.current) {
-                completedRef.current = true;
-                setPhase('DETECTED');
-                setTimeout(() => {
-                  streamRef.current?.getTracks().forEach((t) => t.stop());
-                  onCompleteRef.current();
-                }, 800);
-              }
-            }}
-            className="text-xs font-bold py-2 px-4 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all flex items-center space-x-2 shadow-sm"
-          >
-            <span>Confirm {currentTarget.name} (Offline)</span>
-          </button>
-        </div>
-      )}
+      {/* Action Buttons: Reroll & Manual Verification */}
+      <div className="flex items-center space-x-2 mt-2">
+        <button
+          onClick={handleRerollTarget}
+          className="text-xs font-medium py-1.5 px-3 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-subtext transition-all flex items-center space-x-1"
+        >
+          <RefreshCw size={12} />
+          <span>Different Item</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (!completedRef.current) {
+              completedRef.current = true;
+              setPhase('DETECTED');
+              setTimeout(() => {
+                streamRef.current?.getTracks().forEach((t) => t.stop());
+                onCompleteRef.current();
+              }, 600);
+            }
+          }}
+          className="text-xs font-semibold py-1.5 px-3 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all flex items-center space-x-1 shadow-sm"
+        >
+          <Check size={12} className="text-green-400" />
+          <span>Found Item (Verify)</span>
+        </button>
+      </div>
     </div>
   );
 };

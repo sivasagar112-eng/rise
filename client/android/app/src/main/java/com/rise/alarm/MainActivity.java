@@ -6,12 +6,15 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
+import android.webkit.PermissionRequest;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 
 import android.app.KeyguardManager;
 import android.content.Context;
@@ -32,6 +35,7 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
+        setupWebViewPermissionHandler();
         configureScreenAndKeyguard();
         requestCameraFirst();
         initNetworkMonitoring();
@@ -42,8 +46,43 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         configureScreenAndKeyguard();
+        setupWebViewPermissionHandler();
         // Hold a partial WakeLock from trigger until the task Activity reports it is resumed, then release it
         AlarmTriggerHandler.releaseWakeLock();
+    }
+
+    private void setupWebViewPermissionHandler() {
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                WebView webView = getBridge().getWebView();
+                WebSettings settings = webView.getSettings();
+                settings.setMediaPlaybackRequiresUserGesture(false);
+
+                webView.setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+                    @Override
+                    public void onPermissionRequest(final PermissionRequest request) {
+                        runOnUiThread(() -> {
+                            try {
+                                Log.d(TAG, "WebView onPermissionRequest: " + java.util.Arrays.toString(request.getResources()));
+                                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+                                }
+                                request.grant(request.getResources());
+                                Log.d(TAG, "WebView onPermissionRequest: GRANTED");
+                            } catch (Exception e) {
+                                Log.e(TAG, "Error in onPermissionRequest", e);
+                                try {
+                                    request.grant(request.getResources());
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                    }
+                });
+                Log.d(TAG, "setupWebViewPermissionHandler configured successfully");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to setup WebView WebChromeClient", e);
+        }
     }
 
     @Override

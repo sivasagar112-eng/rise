@@ -42,8 +42,6 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const baseChestYRef = useRef<number | null>(null);
   const baseHipYRef = useRef<number | null>(null);
 
-  // Throttled console log ref
-  const lastLogMsRef = useRef<number>(0);
 
   // EMA-smoothed Y positions for noise reduction
   const smoothSYRef = useRef<number | null>(null);
@@ -222,33 +220,28 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
             if (result && isCurrentEffect && mountedRef.current) {
-              const shoulder = result.shoulder;
-              const chest = result.chest;
-              const hip = result.hip;
+              const upperBody =
+                result.shoulder ||
+                result.chest ||
+                (result.keypoints &&
+                  result.keypoints.find(
+                    (k) =>
+                      (k.name === 'nose' || k.name === 'left_shoulder' || k.name === 'right_shoulder') &&
+                      (k.score ?? 0) > 0.2
+                  ));
 
-              // Only track if shoulder, chest, and hip are detected
-              const hasBodyPoints = Boolean(shoulder && chest && hip && result.isTracking);
+              const hasBodyPoints = Boolean(upperBody);
 
               if (!hasBodyPoints) {
                 setHudData((prev) => ({ ...prev, tracking: false }));
-                baseShoulderYRef.current = null;
-                baseChestYRef.current = null;
-                baseHipYRef.current = null;
-                smoothSYRef.current = null;
-                smoothCYRef.current = null;
-                smoothHYRef.current = null;
-                if (phaseRef.current !== 'FINISHED') {
-                  phaseRef.current = 'WAITING_FOR_BODY';
-                  setPhase('WAITING_FOR_BODY');
-                  setGuidance('Step back: ensure shoulders, chest & hips are in view.');
-                }
+                // Don't wipe baselines on momentary frame drop
                 return;
               }
 
               // Extract Y-axis positions (pixels from top of image) and apply EMA smoothing
-              const rawSY = shoulder!.y;
-              const rawCY = chest!.y;
-              const rawHY = hip!.y;
+              const rawSY = upperBody!.y;
+              const rawCY = result.chest ? result.chest.y : rawSY + 20;
+              const rawHY = result.hip ? result.hip.y : rawCY + 30;
 
               // EMA smoothing (0.75) for fast response without frame lag
               smoothSYRef.current = smoothSYRef.current === null ? rawSY : smoothSYRef.current * (1 - EMA_ALPHA) + rawSY * EMA_ALPHA;
@@ -259,9 +252,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cY = smoothCYRef.current;
               const hY = smoothHYRef.current;
 
-              // Dynamic minimum movement distance based on video resolution (at least 28px)
+              // Dynamic minimum movement distance based on video resolution (at least 22px)
               const vHeight = video.videoHeight || 480;
-              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.065));
+              const dynamicMinDrop = Math.max(22, Math.round(vHeight * 0.05));
 
               // Establish or smoothly maintain baseline at UP position
               if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
@@ -303,71 +296,41 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
               const now = performance.now();
 
-              if (now - lastLogMsRef.current > 1000) {
-                console.log(
-                  `[PushupTracker] Y-pos: S=${sY.toFixed(0)} C=${cY.toFixed(0)} H=${hY.toFixed(0)} | Drop: S=${sDrop.toFixed(0)} C=${cDrop.toFixed(0)} H=${hDrop.toFixed(0)} (Min: ${dynamicMinDrop}) | Phase: ${phaseRef.current}`
-                );
-                lastLogMsRef.current = now;
-              }
-
-              // ==============================================================
-              // HIGH-SPEED PUSHUP LOGIC: Responsive Up-Down-Up Tracking
-              // ==============================================================
-
+              // Simple, intuitive pushup state cycle:
+              // UP -> GOING_DOWN -> DOWN -> GOING_UP -> UP (Rep counted!)
               if (phaseRef.current === 'UP') {
-                // Descent Detection: Shoulders and chest start moving down
-                if (sDrop >= 12 && cDrop >= 10) {
+                if (sDrop >= 12) {
                   phaseRef.current = 'GOING_DOWN';
                   phaseStartMsRef.current = now;
                   repStartMsRef.current = now;
+                  maxDropSeenRef.current = sDrop;
                   setPhase('GOING_DOWN');
                   setGuidance('Lowering down... keep going!');
-                  maxDropSeenRef.current = Math.max(sDrop, cDrop);
                 }
               } else if (phaseRef.current === 'GOING_DOWN') {
-                maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop, cDrop);
-
-                // 2. A valid pushup DOWN position:
-                // Shoulder drops by dynamicMinDrop, chest drops with it, torso cohesion holds,
-                // and descent has taken at least 160ms (rejecting flicking hand movements)
-                const torsoCohesion = Math.abs(sDrop - cDrop) < dynamicMinDrop * 0.85;
-                const descentDuration = now - phaseStartMsRef.current;
-                const isDown = sDrop >= dynamicMinDrop && cDrop >= dynamicMinDrop * 0.65 && torsoCohesion && hDrop >= -15 && descentDuration >= 160;
-
-                if (isDown) {
+                maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop);
+                if (sDrop >= dynamicMinDrop) {
                   phaseRef.current = 'DOWN';
                   phaseStartMsRef.current = now;
                   setPhase('DOWN');
                   setGuidance('Bottom reached! Now push back UP!');
-                  console.log(
-                    `[PushupTracker] ⬇ DOWN REACHED: S:+${sDrop.toFixed(0)}px, C:+${cDrop.toFixed(0)}px, H:+${hDrop.toFixed(0)}px`
-                  );
-                } else if (sDrop < 6 && cDrop < 6 && maxDropSeenRef.current < dynamicMinDrop) {
-                  // Aborted rep (returned to top without hitting full depth)
+                } else if (sDrop < 5 && maxDropSeenRef.current < dynamicMinDrop) {
                   phaseRef.current = 'UP';
                   setPhase('UP');
-                  setGuidance('Lower your entire body all the way down.');
+                  setGuidance('Lower your body all the way down.');
                 }
               } else if (phaseRef.current === 'DOWN') {
-                // Start pushing up: body starts ascending
                 if (sDrop < maxDropSeenRef.current - 6) {
                   phaseRef.current = 'GOING_UP';
                   phaseStartMsRef.current = now;
                   setPhase('GOING_UP');
                   setGuidance('Pushing up — return to top!');
-                } else if (now - phaseStartMsRef.current > 4000) {
-                  setGuidance('Bottom reached! Push your body back UP!');
                 }
               } else if (phaseRef.current === 'GOING_UP') {
-                // 3. A valid pushup UP position:
-                // Shoulder and chest return to starting height (within 40% of peak drop or <= 15px)
-                const returnedUp =
-                  sDrop <= Math.max(15, maxDropSeenRef.current * 0.40) &&
-                  cDrop <= Math.max(15, maxDropSeenRef.current * 0.40);
+                const returnedUp = sDrop <= Math.max(12, maxDropSeenRef.current * 0.45);
+                const repDuration = now - repStartMsRef.current;
 
-                const totalRepTime = now - repStartMsRef.current;
-
-                if (returnedUp && totalRepTime >= 400) {
+                if (returnedUp && repDuration >= 350) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
                     baseShoulderYRef.current = sY;
@@ -376,18 +339,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                     countRepRef.current();
                   }
                 } else if (now - phaseStartMsRef.current > 3000) {
-                  // Safety recovery if user pushed up but landmark slightly shifted
-                  if (sDrop <= maxDropSeenRef.current * 0.55 && totalRepTime >= 400 && now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
-                    lastRepMsRef.current = now;
-                    baseShoulderYRef.current = sY;
-                    baseChestYRef.current = cY;
-                    baseHipYRef.current = hY;
-                    countRepRef.current();
-                  } else {
-                    phaseRef.current = 'UP';
-                    setPhase('UP');
-                    setGuidance('Push all the way up to complete the rep.');
-                  }
+                  phaseRef.current = 'UP';
+                  setPhase('UP');
+                  setGuidance('Push all the way up to complete rep.');
                 }
               }
             }
@@ -415,6 +369,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       const maxAttempts = 3;
 
       const attemptGetUserMedia = async (): Promise<MediaStream> => {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('Camera API not available');
+        }
         try {
           return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
@@ -428,6 +385,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       while (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
         attempts++;
         try {
+          console.log(`[PushupTracker] Requesting camera access (attempt ${attempts}/${maxAttempts})...`);
           const stream = await attemptGetUserMedia();
           if (!isCurrentEffect || !mountedRef.current) {
             stream.getTracks().forEach((t) => t.stop());
@@ -441,19 +399,37 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             video.setAttribute('playsinline', 'true');
             video.setAttribute('webkit-playsinline', 'true');
             video.muted = true;
-            video.play().catch(() => {});
+
+            const tryPlay = () => {
+              if (!video || !isCurrentEffect) return;
+              video.play().catch((e) => {
+                console.warn('[PushupTracker] Video play deferred:', e);
+                setTimeout(() => {
+                  if (isCurrentEffect && mountedRef.current && video.paused) {
+                    video.play().catch(() => {});
+                  }
+                }, 350);
+              });
+            };
+
+            video.onloadedmetadata = tryPlay;
+            video.onloadeddata = tryPlay;
+            video.oncanplay = tryPlay;
+            tryPlay();
           }
 
           rafRef.current = requestAnimationFrame(processFrame);
+          console.log('[PushupTracker] Camera successfully initialized');
           return;
         } catch (err: any) {
+          console.error(`[PushupTracker] Camera init attempt ${attempts} failed:`, err);
           if (attempts < maxAttempts && isCurrentEffect && mountedRef.current) {
             await new Promise((resolve) => setTimeout(resolve, 500));
           } else if (isCurrentEffect && mountedRef.current) {
             setCameraError(
               err?.name === 'NotAllowedError'
-                ? 'Camera permission denied.'
-                : 'Camera is in use by another app.'
+                ? 'Camera permission denied. Use Manual Count.'
+                : 'Camera is busy or unavailable. Use Manual Count.'
             );
           }
         }

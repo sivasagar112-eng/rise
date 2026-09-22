@@ -114,10 +114,10 @@ export const ClickShakeView: React.FC<ClickShakeViewProps> = ({ onComplete }) =>
   useEffect(() => {
     if (phase !== 'SHAKING' || completedRef.current) return;
 
-    // Show fallback shake button after 6 seconds in case device lacks accelerometer or permissions
+    // Show fallback shake button after 3 seconds in case device lacks accelerometer or permissions
     const fallbackTimer = setTimeout(() => {
       setShowFallbackShake(true);
-    }, 6000);
+    }, 3000);
 
     // Request iOS device motion permission if required
     if (
