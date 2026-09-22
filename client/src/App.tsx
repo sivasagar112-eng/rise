@@ -245,7 +245,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-md mx-auto px-5">
+      <main className="flex-1 w-full max-w-md mx-auto px-5 pb-36">
         {/* Tab 1: Alarms */}
         {activeTab === 'ALARM' && (
           <div className="animate-fade-in space-y-1">

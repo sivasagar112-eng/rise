@@ -137,7 +137,6 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
   }, [stopAnimation]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
     stopAnimation();
 
     try {
@@ -309,6 +308,8 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
       style={{
         height: containerHeight,
         perspective: '1000px',
+        touchAction: 'none',
+        overscrollBehavior: 'contain',
         maskImage: 'linear-gradient(to bottom, transparent 0%, black 22%, black 78%, transparent 100%)',
         WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 22%, black 78%, transparent 100%)',
       }}

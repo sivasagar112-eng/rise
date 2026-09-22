@@ -47,13 +47,33 @@ public class BootReceiver extends BroadcastReceiver {
                 int pushupTarget = alarm.optInt("pushupTarget", 5);
                 int rampDuration = alarm.optInt("rampDuration", 30);
 
-                // Only reschedule future alarms
-                if (triggerMs > System.currentTimeMillis() && !alarmId.isEmpty()) {
+                // Recalculate upcoming occurrence if the stored triggerMs has already passed
+                long nextTriggerMs = triggerMs;
+                if (nextTriggerMs <= System.currentTimeMillis()) {
+                    try {
+                        String[] parts = alarmTime.split(":");
+                        int h = Integer.parseInt(parts[0].trim());
+                        int m = Integer.parseInt(parts[1].trim());
+                        java.util.Calendar cal = java.util.Calendar.getInstance();
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, h);
+                        cal.set(java.util.Calendar.MINUTE, m);
+                        cal.set(java.util.Calendar.SECOND, 0);
+                        cal.set(java.util.Calendar.MILLISECOND, 0);
+                        if (cal.getTimeInMillis() <= System.currentTimeMillis()) {
+                            cal.add(java.util.Calendar.DAY_OF_YEAR, 1);
+                        }
+                        nextTriggerMs = cal.getTimeInMillis();
+                    } catch (Exception parseEx) {
+                        Log.w(TAG, "Could not recalculate alarmTime: " + alarmTime, parseEx);
+                    }
+                }
+
+                if (!alarmId.isEmpty() && nextTriggerMs > System.currentTimeMillis()) {
                     AlarmSchedulerPlugin.scheduleNativeAlarm(
-                        context, alarmId, triggerMs, alarmTime, alarmLabel,
+                        context, alarmId, nextTriggerMs, alarmTime, alarmLabel,
                         dismissalType, pushupTarget, rampDuration
                     );
-                    Log.d(TAG, "Re-scheduled alarm: " + alarmId + " at " + alarmTime);
+                    Log.d(TAG, "Re-scheduled alarm after boot: " + alarmId + " at " + alarmTime + " (trigger: " + nextTriggerMs + ")");
                 }
             }
         } catch (Exception e) {

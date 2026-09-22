@@ -263,6 +263,50 @@ public class AlarmSchedulerPlugin extends Plugin {
     }
 
     /**
+     * Check whether the app is whitelisted from battery optimizations (Doze mode)
+     */
+    @PluginMethod
+    public void isBatteryOptimizationIgnored(PluginCall call) {
+        JSObject result = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            boolean isIgnoring = pm != null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+            result.put("isIgnored", isIgnoring);
+        } else {
+            result.put("isIgnored", true);
+        }
+        call.resolve(result);
+    }
+
+    /**
+     * Request exemption from battery optimizations via system dialog
+     */
+    @PluginMethod
+    public void requestBatteryOptimizationExemption(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getContext().getPackageName())) {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(android.net.Uri.parse("package:" + getContext().getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(intent);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not launch battery optimization intent directly, opening battery settings", e);
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(intent);
+                } catch (Exception ignored) {}
+            }
+        }
+        JSObject result = new JSObject();
+        result.put("success", true);
+        call.resolve(result);
+    }
+
+    /**
      * Retrieve any pending alarm that caused the app to launch or ring
      */
     @PluginMethod

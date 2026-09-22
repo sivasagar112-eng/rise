@@ -3,6 +3,7 @@ import { ModelPreloader } from '../../services/ModelPreloader';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { MapPin, Check, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { synth } from '../../services/WebAudioSynth';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 interface ObjectMatchCameraViewProps {
   onComplete: () => void;
@@ -62,7 +63,8 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const isOnline = useNetworkStatus();
+  const [isOfflineMode, setIsOfflineMode] = useState(!isOnline);
 
   const handleRerollTarget = () => {
     setConfirmedFrames(0);
@@ -77,29 +79,44 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   // 1. Load AI model via preloader (near-instant if already preloaded)
   useEffect(() => {
     let mounted = true;
+
     const loadAi = async () => {
+      // If offline and model is not yet in memory, route straight to offline verification
+      if (!isOnline && !ModelPreloader.isCocoReady() && !modelRef.current) {
+        console.log('[ObjectMatch] Device is offline; routing straight to on-device mode');
+        if (mounted) {
+          setIsOfflineMode(true);
+          setIsAiReady(true);
+        }
+        return;
+      }
+
       try {
         console.log('[ObjectMatch] Loading COCO-SSD via ModelPreloader...');
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Network offline or timeout')), 2500)
+          setTimeout(() => reject(new Error('Model load timeout')), 2500)
         );
         const model = (await Promise.race([ModelPreloader.getCocoSsd(), timeoutPromise])) as any;
         if (mounted) {
           modelRef.current = model;
+          setIsOfflineMode(false);
           setIsAiReady(true);
           console.log('[ObjectMatch] COCO-SSD model ready');
         }
       } catch (aiErr: any) {
-        console.warn('[ObjectMatch] AI Model unavailable offline:', aiErr);
+        console.warn('[ObjectMatch] AI Model loading deferred, active in on-device mode:', aiErr);
         if (mounted) {
           setIsOfflineMode(true);
           setIsAiReady(true);
         }
       }
     };
+
     loadAi();
-    return () => { mounted = false; };
-  }, []);
+    return () => {
+      mounted = false;
+    };
+  }, [isOnline]);
 
   // 2. Start/Restart Camera when facingMode changes
   useEffect(() => {

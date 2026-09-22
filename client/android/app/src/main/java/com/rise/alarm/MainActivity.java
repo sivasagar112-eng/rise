@@ -242,6 +242,27 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_CODE);
+            } else {
+                requestBatteryOptimizationExemption();
+            }
+        } else {
+            requestBatteryOptimizationExemption();
+        }
+    }
+
+    private void requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    Log.d(TAG, "Prompted user for battery optimization exemption");
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Battery optimization request failed", e);
             }
         }
     }
@@ -252,6 +273,9 @@ public class MainActivity extends BridgeActivity {
         if (requestCode == CAMERA_PERMISSION_CODE) {
             // Once Camera dialog is answered, immediately prompt for Notifications
             requestNotificationSecond();
+        } else if (requestCode == NOTIFICATION_PERMISSION_CODE) {
+            // Once Notification dialog is answered, prompt for Battery Optimization
+            requestBatteryOptimizationExemption();
         }
     }
 }
