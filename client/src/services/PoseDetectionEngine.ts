@@ -347,13 +347,6 @@ export class PoseDetectionEngine {
     if (detector) return detector;
     if (loading) return loading;
 
-    // If device is strictly offline, activate offline tracker immediately
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      console.log('[PoseEngine] Device is offline (no data/Wi-Fi). Using Offline Optical Torso Tracker.');
-      this.forceOffline = true;
-      return null;
-    }
-
     const loadPromise = (async () => {
       console.log('[PoseEngine] Initializing TensorFlow.js backend...');
       try {
@@ -367,29 +360,46 @@ export class PoseDetectionEngine {
       await tf.ready();
       console.log(`[PoseEngine] TF backend: ${tf.getBackend()}`);
 
-      console.log('[PoseEngine] Loading MoveNet Lightning...');
-      const d = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
-        {
-          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
-        }
-      );
+      console.log('[PoseEngine] Loading MoveNet Lightning from local bundled assets...');
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const localUrl = `${origin}/models/movenet/model.json`;
+
+      let d: poseDetection.PoseDetector;
+      try {
+        d = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          {
+            modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+            modelUrl: localUrl,
+          }
+        );
+      } catch (localErr) {
+        console.warn('[PoseEngine] Absolute modelUrl failed, trying relative /models/movenet/model.json:', localErr);
+        d = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          {
+            modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+            modelUrl: '/models/movenet/model.json',
+          }
+        );
+      }
       detector = d;
-      console.log('[PoseEngine] MoveNet Lightning loaded successfully');
+      console.log('[PoseEngine] MoveNet Lightning loaded successfully from local bundle');
       return d;
     })();
 
-    // 2.5s timeout: if remote network download hangs or fails, fall back to offline tracker
+    // Safety timeout (10 seconds for initial shader compilation on slow devices)
     const timeoutPromise = new Promise<null>((resolve) => {
       setTimeout(() => {
-        console.warn('[PoseEngine] MoveNet load timed out (2.5s) — enabling offline tracker');
+        console.warn('[PoseEngine] MoveNet load timed out (10s) — enabling offline tracker');
         this.forceOffline = true;
         resolve(null);
-      }, 2500);
+      }, 10000);
     });
 
     loading = Promise.race([loadPromise, timeoutPromise]).catch((err) => {
       console.warn('[PoseEngine] MoveNet failed to load:', err);
+      loading = null; // Reset so retry is possible
       this.forceOffline = true;
       return null;
     }) as Promise<any>;

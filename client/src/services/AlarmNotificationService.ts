@@ -15,6 +15,7 @@ interface AlarmSchedulerPluginInterface {
     dismissalType: string;
     pushupTarget: number;
     rampDuration: number;
+    daysOfWeek?: number[];
   }): Promise<{ success: boolean; alarmId: string; triggerMs: number }>;
 
   cancelAlarm(options: { alarmId: string }): Promise<{ success: boolean }>;
@@ -334,6 +335,7 @@ export class AlarmNotificationService {
               dismissalType: alarm.dismissalType,
               pushupTarget: alarm.pushupTarget || 5,
               rampDuration: alarm.rampDuration || 30,
+              daysOfWeek: alarm.daysOfWeek || [],
             });
             console.log(`[AlarmNotificationService] Native alarm scheduled: ${alarm.id} at ${alarm.time}`);
           } catch (e) {

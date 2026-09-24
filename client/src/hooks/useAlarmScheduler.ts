@@ -36,7 +36,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
     onAlarmTriggerRef.current = onAlarmTrigger;
   }, [onAlarmTrigger]);
 
-  const triggerAlarm = useCallback((alarm: Alarm) => {
+  const triggerAlarm = useCallback((alarm: Alarm, fromNative: boolean = false) => {
     // Prevent duplicate triggers across ticker, native events, and notifications
     if (activeAlarmIdRef.current === alarm.id) {
       console.log(`[useAlarmScheduler] Alarm ${alarm.id} is already active, ignoring duplicate trigger`);
@@ -56,27 +56,30 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       return;
     }
 
-    // Pick random task from the 5 available tasks
-    const randomDismissal = getRandomDismissalTask();
+    // Use assigned dismissalType or pick random task from the 5 available tasks
+    const runtimeDismissal = alarm.dismissalType || getRandomDismissalTask();
     const runtimeAlarm: Alarm = {
       ...alarm,
-      dismissalType: randomDismissal,
+      dismissalType: runtimeDismissal,
       pushupTarget: alarm.pushupTarget || 5,
     };
-    console.log(`[useAlarmScheduler] Random task selected for alarm ${alarm.id}: ${randomDismissal}`);
+    console.log(`[useAlarmScheduler] Task selected for alarm ${alarm.id}: ${runtimeDismissal} (fromNative=${fromNative})`);
 
     activeAlarmIdRef.current = runtimeAlarm.id;
     setActiveRingingAlarm(runtimeAlarm);
     const now = performance.now();
     setAlarmTriggerTimestamp(now);
 
-    // FIX 2: Ensure ONLY ONE audio source is ever active!
-    // On native Android, AlarmService is the sole background/foreground audio player.
-    // On web, WebAudioSynth is the sole audio player.
+    // Audio stream synchronization:
+    // On native Android, if already triggered by AlarmService in background, preserve active audio.
+    // If triggered from JS ticker or web, start audio.
     if (Capacitor.isNativePlatform()) {
-      console.log('[useAlarmScheduler] Native Android: Starting single AlarmService audio instance');
-      AlarmNotificationService.startNativeRinging(runtimeAlarm);
-      // Ensure WebAudioSynth is stopped on native to prevent duplicate audio clash
+      if (!fromNative) {
+        console.log('[useAlarmScheduler] Native Android: Starting single AlarmService audio instance');
+        AlarmNotificationService.startNativeRinging(runtimeAlarm);
+      } else {
+        console.log('[useAlarmScheduler] Native Android: AlarmService already active in background, keeping smooth audio stream');
+      }
       synth.stopAlarm();
     } else {
       console.log('[useAlarmScheduler] Web environment: Starting single WebAudioSynth audio instance');
@@ -139,8 +142,8 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
           return;
         }
 
-        console.log('[useAlarmScheduler] Triggering matched alarm:', match.id);
-        triggerAlarm(match);
+        console.log('[useAlarmScheduler] Triggering matched alarm from native event:', match.id);
+        triggerAlarm(match, true /* fromNative */);
       } else {
         console.error('[useAlarmScheduler] Failed to find or construct alarm for ID:', alarmId);
       }

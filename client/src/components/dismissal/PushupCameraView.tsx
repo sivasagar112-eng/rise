@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { synth } from '../../services/WebAudioSynth';
 import { PoseDetectionEngine, PoseResult } from '../../services/PoseDetectionEngine';
-import { Dumbbell, RefreshCw, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
+import { Dumbbell, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 interface PushupCameraViewProps {
@@ -12,8 +12,9 @@ interface PushupCameraViewProps {
 type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
 // Pushup Movement Thresholds
-const MIN_DROP_PX = 28;            // Minimum vertical displacement (pixels) required for shoulder/chest
-const REP_COOLDOWN_MS = 400;       // Fast cooldown (400ms) allows natural pushup tempo
+const MIN_DROP_PX = 32;            // Minimum vertical displacement (pixels) required for shoulder/chest
+const REP_COOLDOWN_MS = 700;       // Minimum time between reps
+const MIN_REP_DURATION_MS = 600;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
 const EMA_ALPHA = 0.75;            // High-reactivity smoothing (eliminates frame-to-frame lag)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
@@ -34,14 +35,12 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const lastRepMsRef = useRef<number>(0);
   const repStartMsRef = useRef<number>(0);
   const maxDropSeenRef = useRef<number>(0);
-  const stableDownCountRef = useRef(0);
-  const stableUpCountRef = useRef(0);
+  const minElbowAngleSeenRef = useRef<number>(180);
 
   // Baselines for the UP position (starting height)
   const baseShoulderYRef = useRef<number | null>(null);
   const baseChestYRef = useRef<number | null>(null);
   const baseHipYRef = useRef<number | null>(null);
-
 
   // EMA-smoothed Y positions for noise reduction
   const smoothSYRef = useRef<number | null>(null);
@@ -64,6 +63,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const [hudData, setHudData] = useState({
     tracking: false,
     isOffline: false,
+    isPlank: false,
+    elbowAngle: null as number | null,
     sY: 0,
     cY: 0,
     hY: 0,
@@ -88,7 +89,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
   }, []);
 
-  // Manual rep fallback
+  // Manual rep fallback (used only when camera fails)
   const handleManualRep = useCallback(() => {
     if (repsRef.current < targetRepsRef.current && !completedRef.current) {
       repsRef.current += 1;
@@ -135,7 +136,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     } else {
       phaseRef.current = 'UP';
       setPhase('UP');
-      setGuidance(`Rep ${repsRef.current} done! Lower down again...`);
+      setGuidance(`Rep ${repsRef.current} verified! Lower down again...`);
     }
   }, []);
 
@@ -156,7 +157,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           setModelReady(true);
           phaseRef.current = 'WAITING_FOR_BODY';
           setPhase('WAITING_FOR_BODY');
-          setGuidance('Position phone so shoulders, chest, and hips are visible.');
+          setGuidance('Get into plank position (horizontal to camera)');
         }
       } catch (err) {
         console.warn('[PushupTracker] MoveNet offline fallback active:', err);
@@ -165,7 +166,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           setModelReady(true);
           phaseRef.current = 'WAITING_FOR_BODY';
           setPhase('WAITING_FOR_BODY');
-          setGuidance('Offline AI active. Position phone so body is visible.');
+          setGuidance('Get into plank position (horizontal to camera)');
         }
       }
     };
@@ -175,7 +176,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     };
   }, []);
 
-  // Simplified Tracking Loop: Shoulder, Chest, and Hip Y-axis movement
+  // Tracking Loop: Plank Posture Check, Elbow Angle, and Torso Y-axis movement
   useEffect(() => {
     let isCurrentEffect = true;
     mountedRef.current = true;
@@ -188,8 +189,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     smoothCYRef.current = null;
     smoothHYRef.current = null;
     maxDropSeenRef.current = 0;
-    stableDownCountRef.current = 0;
-    stableUpCountRef.current = 0;
+    minElbowAngleSeenRef.current = 180;
 
     const processFrame = async () => {
       if (!mountedRef.current || completedRef.current || !isCurrentEffect) return;
@@ -220,6 +220,35 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             const result: PoseResult | null = await PoseDetectionEngine.detectPose(video);
 
             if (result && isCurrentEffect && mountedRef.current) {
+              // Draw real-time skeleton overlay
+              PoseDetectionEngine.drawPose(
+                ctx,
+                result.keypoints,
+                canvas.width,
+                canvas.height,
+                video.videoWidth,
+                video.videoHeight,
+                result.isUpright,
+                result.isHorizontal
+              );
+
+              // POSTURE ENFORCEMENT: Pushups require plank position!
+              // If user is standing or sitting upright, reject and prompt to plank.
+              if (result.isUpright) {
+                setHudData((prev) => ({
+                  ...prev,
+                  tracking: true,
+                  isPlank: false,
+                  elbowAngle: result.avgElbowAngle ? Math.round(result.avgElbowAngle) : null,
+                }));
+                if (phaseRef.current !== 'WAITING_FOR_BODY') {
+                  phaseRef.current = 'WAITING_FOR_BODY';
+                  setPhase('WAITING_FOR_BODY');
+                }
+                setGuidance('Get into plank position (horizontal to camera)');
+                return;
+              }
+
               const upperBody =
                 result.shoulder ||
                 result.chest ||
@@ -227,14 +256,13 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   result.keypoints.find(
                     (k) =>
                       (k.name === 'nose' || k.name === 'left_shoulder' || k.name === 'right_shoulder') &&
-                      (k.score ?? 0) > 0.2
+                      (k.score ?? 0) > 0.25
                   ));
 
               const hasBodyPoints = Boolean(upperBody);
 
               if (!hasBodyPoints) {
-                setHudData((prev) => ({ ...prev, tracking: false }));
-                // Don't wipe baselines on momentary frame drop
+                setHudData((prev) => ({ ...prev, tracking: false, isPlank: false }));
                 return;
               }
 
@@ -252,9 +280,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cY = smoothCYRef.current;
               const hY = smoothHYRef.current;
 
-              // Dynamic minimum movement distance based on video resolution (at least 22px)
+              // Dynamic minimum movement distance based on video resolution (at least 32px)
               const vHeight = video.videoHeight || 480;
-              const dynamicMinDrop = Math.max(22, Math.round(vHeight * 0.05));
+              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.08));
 
               // Establish or smoothly maintain baseline at UP position
               if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
@@ -272,7 +300,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 if (phaseRef.current === 'WAITING_FOR_BODY') {
                   phaseRef.current = 'UP';
                   setPhase('UP');
-                  setGuidance('Ready! Lower your body down.');
+                  setGuidance('Plank verified! Lower your body down.');
                 }
               }
 
@@ -285,6 +313,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               setHudData({
                 tracking: true,
                 isOffline: Boolean(result.isOffline),
+                isPlank: true,
+                elbowAngle: result.avgElbowAngle ? Math.round(result.avgElbowAngle) : null,
                 sY: Math.round(sY),
                 cY: Math.round(cY),
                 hY: Math.round(hY),
@@ -295,42 +325,68 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               });
 
               const now = performance.now();
+              const curElbowAngle = result.avgElbowAngle ?? null;
 
-              // Simple, intuitive pushup state cycle:
+              // Rigorous Pushup State Cycle with Angle + Displacement Verification:
               // UP -> GOING_DOWN -> DOWN -> GOING_UP -> UP (Rep counted!)
               if (phaseRef.current === 'UP') {
-                if (sDrop >= 12) {
+                if (sDrop >= 20) {
                   phaseRef.current = 'GOING_DOWN';
                   phaseStartMsRef.current = now;
                   repStartMsRef.current = now;
                   maxDropSeenRef.current = sDrop;
+                  minElbowAngleSeenRef.current = curElbowAngle ?? 180;
                   setPhase('GOING_DOWN');
-                  setGuidance('Lowering down... keep going!');
+                  setGuidance('Lowering down... bend elbows!');
                 }
               } else if (phaseRef.current === 'GOING_DOWN') {
                 maxDropSeenRef.current = Math.max(maxDropSeenRef.current, sDrop);
-                if (sDrop >= dynamicMinDrop) {
+                if (curElbowAngle !== null) {
+                  minElbowAngleSeenRef.current = Math.min(minElbowAngleSeenRef.current, curElbowAngle);
+                }
+
+                // DOWN requirement:
+                // 1) Vertical drop >= dynamicMinDrop (≥32px)
+                // 2) If elbow angle available, elbow must bend to <= 120° (or either elbow <= 120°)
+                const hasValidElbowBend = curElbowAngle === null ||
+                  curElbowAngle <= 120 ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 120) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 120);
+
+                if (sDrop >= dynamicMinDrop && hasValidElbowBend) {
                   phaseRef.current = 'DOWN';
                   phaseStartMsRef.current = now;
                   setPhase('DOWN');
                   setGuidance('Bottom reached! Now push back UP!');
-                } else if (sDrop < 5 && maxDropSeenRef.current < dynamicMinDrop) {
+                } else if (sDrop < 8 && maxDropSeenRef.current < dynamicMinDrop) {
                   phaseRef.current = 'UP';
                   setPhase('UP');
-                  setGuidance('Lower your body all the way down.');
+                  setGuidance('Lower your chest all the way down.');
                 }
               } else if (phaseRef.current === 'DOWN') {
-                if (sDrop < maxDropSeenRef.current - 6) {
+                if (curElbowAngle !== null) {
+                  minElbowAngleSeenRef.current = Math.min(minElbowAngleSeenRef.current, curElbowAngle);
+                }
+                if (sDrop < maxDropSeenRef.current - 8) {
                   phaseRef.current = 'GOING_UP';
                   phaseStartMsRef.current = now;
                   setPhase('GOING_UP');
-                  setGuidance('Pushing up — return to top!');
+                  setGuidance('Pushing up — extend arms to top!');
                 }
               } else if (phaseRef.current === 'GOING_UP') {
-                const returnedUp = sDrop <= Math.max(12, maxDropSeenRef.current * 0.45);
+                const returnedUp = sDrop <= Math.max(16, maxDropSeenRef.current * 0.40);
                 const repDuration = now - repStartMsRef.current;
 
-                if (returnedUp && repDuration >= 350) {
+                // UP return requirement:
+                // 1) Returned close to baseline height
+                // 2) Arm extended: if elbow angle available, must reach >= 140°
+                // 3) Duration must be realistic (>= 600ms) to reject quick hand twitches
+                const hasArmsExtended = curElbowAngle === null ||
+                  curElbowAngle >= 140 ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle >= 140) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle >= 140);
+
+                if (returnedUp && hasArmsExtended && repDuration >= MIN_REP_DURATION_MS) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
                     baseShoulderYRef.current = sY;
@@ -338,7 +394,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                     baseHipYRef.current = hY;
                     countRepRef.current();
                   }
-                } else if (now - phaseStartMsRef.current > 3000) {
+                } else if (now - phaseStartMsRef.current > 4000) {
                   phaseRef.current = 'UP';
                   setPhase('UP');
                   setGuidance('Push all the way up to complete rep.');
@@ -467,7 +523,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       {/* Header */}
       <div className="flex items-center space-x-2 text-xs uppercase tracking-wider text-theme-subtext mb-2 font-semibold">
         <Dumbbell size={14} className="text-blue-500" />
-        <span>PUSHUP DETECTION (SHOULDER • CHEST • HIP)</span>
+        <span>PUSHUP DETECTION (PLANK &bull; ELBOW ANGLE)</span>
       </div>
 
       <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-theme-text mb-1">
@@ -479,7 +535,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         {guidance}
       </p>
 
-      {/* Camera Viewfinder */}
+      {/* Camera Viewfinder with Skeleton Overlay */}
       <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-2 shadow-lg">
         {cameraError ? (
           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white bg-neutral-900">
@@ -504,11 +560,10 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               style={{ pointerEvents: 'none' }}
               className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
             />
-            {/* Overlay canvas hidden — skeleton drawing removed */}
+            {/* Live Skeleton Canvas Overlay */}
             <canvas
               ref={overlayCanvasRef}
-              className={`absolute inset-0 w-full h-full pointer-events-none ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-              style={{ objectFit: 'cover', display: 'none' }}
+              className={`absolute inset-0 w-full h-full pointer-events-none object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
             />
           </>
         )}
@@ -524,7 +579,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               <FlipHorizontal size={16} />
             </button>
             <div className="flex items-center gap-1.5">
-              {/* Separate live network status indicator */}
+              {/* Live network status badge */}
               <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
                 <span className={isOnline ? 'text-emerald-400' : 'text-neutral-400'}>
@@ -532,16 +587,16 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 </span>
               </div>
 
-              {/* On-Device AI Capability Badge */}
+              {/* Status Badge */}
               <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
                 {phase === 'LOADING_MODEL' && !modelReady ? (
                   <span className="flex items-center gap-1">
                     <Loader2 size={10} className="animate-spin" /> LOADING AI...
                   </span>
+                ) : hudData.isPlank ? (
+                  <span className="text-green-400 font-extrabold">PLANK VERIFIED ✓</span>
                 ) : hudData.tracking ? (
-                  <span className={hudData.isOffline ? 'text-amber-300 font-extrabold' : 'text-green-400'}>
-                    {hudData.isOffline ? '⚡ ON-DEVICE AI' : 'BODY TRACKED ✓'}
-                  </span>
+                  <span className="text-amber-300">GET IN PLANK</span>
                 ) : (
                   <span className="text-amber-300">POSITION BODY</span>
                 )}
@@ -569,7 +624,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               ? '⬆ PUSHING UP...'
               : phase === 'UP'
               ? 'READY (LOWER DOWN)'
-              : 'GET IN POSITION'}
+              : 'GET IN PLANK'}
           </div>
 
           {/* Bottom Banner */}
@@ -577,10 +632,10 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
             {phase === 'DOWN'
               ? 'PUSH BACK UP NOW!'
               : phase === 'GOING_DOWN'
-              ? 'KEEP LOWERING...'
+              ? 'LOWER CHEST & BEND ELBOWS'
               : phase === 'GOING_UP'
-              ? 'RETURN TO TOP POSITION'
-              : 'SHOULDER • CHEST • HIP SYNCHRONIZED'}
+              ? 'EXTEND ARMS TO TOP'
+              : 'PLANK POSITION &bull; BEND ELBOWS'}
           </div>
         </div>
 
@@ -595,33 +650,33 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         )}
       </div>
 
-      {/* Simple Debug HUD: Shoulder / Chest / Hip Y-values */}
+      {/* Real-time HUD: Shoulder / Elbow / Displacement */}
       <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
         <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
-          <span>Torso Y-Movement Tracker {hudData.isOffline ? '(⚡ On-Device Vision)' : ''}</span>
-          <span className="text-green-400 font-normal">Target: ≥{hudData.targetDrop}px</span>
+          <span>Pushup Form Tracker {hudData.isOffline ? '(Offline)' : '(MoveNet)'}</span>
+          <span className="text-green-400 font-normal">Target: &ge;{hudData.targetDrop}px</span>
         </div>
         <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">
           <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-blue-400 font-bold block">SHOULDER</span>
-            <span className="text-neutral-200">{hudData.sY}px</span>
-            <span className={`block font-bold text-[9px] ${hudData.sDrop >= hudData.targetDrop ? 'text-green-400' : 'text-neutral-400'}`}>
-              Δ: {hudData.sDrop > 0 ? `+${hudData.sDrop}` : hudData.sDrop}px
+            <span className="text-blue-400 font-bold block">DISPLACEMENT</span>
+            <span className={`block font-bold text-[10px] ${hudData.sDrop >= hudData.targetDrop ? 'text-green-400' : 'text-neutral-300'}`}>
+              {hudData.sDrop > 0 ? `+${hudData.sDrop}` : hudData.sDrop}px
             </span>
+            <span className="text-[8px] text-neutral-500">min {hudData.targetDrop}px</span>
           </div>
           <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-amber-400 font-bold block">CHEST</span>
-            <span className="text-neutral-200">{hudData.cY}px</span>
-            <span className={`block font-bold text-[9px] ${hudData.cDrop >= hudData.targetDrop * 0.8 ? 'text-green-400' : 'text-neutral-400'}`}>
-              Δ: {hudData.cDrop > 0 ? `+${hudData.cDrop}` : hudData.cDrop}px
+            <span className="text-amber-400 font-bold block">ELBOW ANGLE</span>
+            <span className={`block font-bold text-[10px] ${hudData.elbowAngle !== null && hudData.elbowAngle <= 120 ? 'text-green-400' : 'text-neutral-300'}`}>
+              {hudData.elbowAngle !== null ? `${hudData.elbowAngle}°` : '--'}
             </span>
+            <span className="text-[8px] text-neutral-500">&le;120&deg; for rep</span>
           </div>
           <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-purple-400 font-bold block">HIP</span>
-            <span className="text-neutral-200">{hudData.hY}px</span>
-            <span className={`block font-bold text-[9px] ${hudData.hDrop >= hudData.targetDrop * 0.45 ? 'text-green-400' : 'text-neutral-400'}`}>
-              Δ: {hudData.hDrop > 0 ? `+${hudData.hDrop}` : hudData.hDrop}px
+            <span className="text-purple-400 font-bold block">POSTURE</span>
+            <span className={`block font-bold text-[10px] ${hudData.isPlank ? 'text-green-400' : 'text-amber-400'}`}>
+              {hudData.isPlank ? 'PLANK ✓' : 'UPRIGHT'}
             </span>
+            <span className="text-[8px] text-neutral-500">Horizontal</span>
           </div>
         </div>
       </div>
@@ -635,18 +690,6 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         <span className="text-xs tracking-wider font-semibold text-theme-subtext ml-2 uppercase">
           Reps
         </span>
-      </div>
-
-      {/* Manual Count Fallback */}
-      <div className="flex flex-col items-center space-y-1">
-        <button
-          onClick={handleManualRep}
-          className="text-xs font-semibold tracking-wide py-2 px-4 rounded-xl border border-theme-border bg-theme-card hover:opacity-80 active:scale-95 text-theme-text transition-all flex items-center space-x-2 shadow-sm"
-        >
-          <RefreshCw size={13} />
-          <span>Manual Count (+1 Rep)</span>
-        </button>
-        <span className="text-[10px] text-theme-subtext">Phone position tricky? Tap to count rep</span>
       </div>
     </div>
   );

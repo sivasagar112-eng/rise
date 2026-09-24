@@ -32,8 +32,13 @@ public class BootReceiver extends BroadcastReceiver {
 
     private void rescheduleAlarms(Context context) {
         try {
-            SharedPreferences prefs = context.getSharedPreferences("rise_alarms", Context.MODE_PRIVATE);
+            SharedPreferences prefs = AlarmSchedulerPlugin.getStoragePrefs(context);
             String alarmsJson = prefs.getString("scheduled_alarms", "[]");
+            if ("[]".equals(alarmsJson)) {
+                prefs = context.getSharedPreferences("rise_alarms", Context.MODE_PRIVATE);
+                alarmsJson = prefs.getString("scheduled_alarms", "[]");
+            }
+
             JSONArray alarmsArray = new JSONArray(alarmsJson);
 
             for (int i = 0; i < alarmsArray.length(); i++) {
@@ -46,10 +51,24 @@ public class BootReceiver extends BroadcastReceiver {
                 String dismissalType = alarm.optString("dismissalType", "PUSHUP_MATH");
                 int pushupTarget = alarm.optInt("pushupTarget", 5);
                 int rampDuration = alarm.optInt("rampDuration", 30);
+                JSONArray daysJson = alarm.optJSONArray("daysOfWeek");
+
+                java.util.List<Integer> daysOfWeek = new java.util.ArrayList<>();
+                if (daysJson != null) {
+                    for (int d = 0; d < daysJson.length(); d++) {
+                        daysOfWeek.add(daysJson.getInt(d));
+                    }
+                }
 
                 // Recalculate upcoming occurrence if the stored triggerMs has already passed
                 long nextTriggerMs = triggerMs;
                 if (nextTriggerMs <= System.currentTimeMillis()) {
+                    // If one-time alarm already elapsed before boot, do not reschedule
+                    if (daysOfWeek.isEmpty()) {
+                        Log.d(TAG, "One-time alarm already expired before boot: " + alarmId + ", skipping.");
+                        continue;
+                    }
+
                     try {
                         String[] parts = alarmTime.split(":");
                         int h = Integer.parseInt(parts[0].trim());
@@ -59,7 +78,14 @@ public class BootReceiver extends BroadcastReceiver {
                         cal.set(java.util.Calendar.MINUTE, m);
                         cal.set(java.util.Calendar.SECOND, 0);
                         cal.set(java.util.Calendar.MILLISECOND, 0);
-                        if (cal.getTimeInMillis() <= System.currentTimeMillis()) {
+
+                        for (int attempt = 0; attempt < 8; attempt++) {
+                            int currentCalDay = cal.get(java.util.Calendar.DAY_OF_WEEK);
+                            int jsDay = currentCalDay - 1; // Calendar: 1=Sun, 2=Mon... JS: 0=Sun, 1=Mon...
+
+                            if (cal.getTimeInMillis() > System.currentTimeMillis() && daysOfWeek.contains(jsDay)) {
+                                break;
+                            }
                             cal.add(java.util.Calendar.DAY_OF_YEAR, 1);
                         }
                         nextTriggerMs = cal.getTimeInMillis();

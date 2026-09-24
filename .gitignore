@@ -25,6 +25,9 @@ client/android/.cxx/
 *.apk
 Rise-debug.apk
 
+# On-device model binaries (downloaded via npm run download-models or prebuild)
+client/public/models/
+
 # Environment variables
 .env
 .env.local

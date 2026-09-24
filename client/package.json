@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "download-models": "node scripts/download-models.js",
+    "prebuild": "node scripts/download-models.js",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

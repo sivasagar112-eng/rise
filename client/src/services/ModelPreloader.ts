@@ -56,19 +56,41 @@ export class ModelPreloader {
   }
 
   /**
-   * Get (or load) the COCO-SSD object detection model.
+   * Get (or load) the COCO-SSD object detection model from local bundled assets.
    */
   static async getCocoSsd(): Promise<cocoSsd.ObjectDetection> {
     if (cocoModel) return cocoModel;
     if (cocoLoading) return cocoLoading;
 
     cocoLoading = (async () => {
-      console.log('[ModelPreloader] Loading COCO-SSD model...');
-      await tf.ready();
-      const model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      cocoModel = model;
-      console.log('[ModelPreloader] COCO-SSD model loaded successfully');
-      return model;
+      try {
+        console.log('[ModelPreloader] Loading COCO-SSD model from local bundled assets...');
+        await tf.ready();
+
+        let model: cocoSsd.ObjectDetection;
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const localUrl = `${origin}/models/coco-ssd/model.json`;
+
+        try {
+          model = await cocoSsd.load({
+            base: 'lite_mobilenet_v2',
+            modelUrl: localUrl,
+          });
+        } catch (localErr) {
+          console.warn('[ModelPreloader] Absolute path failed, falling back to relative /models/coco-ssd/model.json:', localErr);
+          model = await cocoSsd.load({
+            base: 'lite_mobilenet_v2',
+            modelUrl: '/models/coco-ssd/model.json',
+          });
+        }
+
+        cocoModel = model;
+        console.log('[ModelPreloader] COCO-SSD model loaded successfully from local bundle');
+        return model;
+      } catch (err) {
+        cocoLoading = null; // Reset so subsequent retries are possible
+        throw err;
+      }
     })();
 
     return cocoLoading;

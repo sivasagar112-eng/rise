@@ -8,6 +8,7 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -68,6 +69,8 @@ public class AlarmSchedulerPlugin extends Plugin {
         String dismissalType = call.getString("dismissalType", "PUSHUP_MATH");
         int pushupTarget = call.getInt("pushupTarget", 5);
         int rampDuration = call.getInt("rampDuration", 30);
+        JSArray daysArray = call.getArray("daysOfWeek");
+        JSONArray daysOfWeek = daysArray != null ? daysArray : new JSONArray();
 
         if (alarmId.isEmpty() || triggerMs == 0) {
             call.reject("alarmId and triggerMs are required");
@@ -87,8 +90,8 @@ public class AlarmSchedulerPlugin extends Plugin {
                 dismissalType, pushupTarget, rampDuration
             );
 
-            // Persist alarm data for BootReceiver to use after reboot
-            saveAlarmToPrefs(alarmId, triggerMs, alarmTime, alarmLabel, dismissalType, pushupTarget, rampDuration);
+            // Persist alarm data (including daysOfWeek) for BootReceiver to use after reboot
+            saveAlarmToPrefs(alarmId, triggerMs, alarmTime, alarmLabel, dismissalType, pushupTarget, rampDuration, daysOfWeek);
 
             JSObject result = new JSObject();
             result.put("success", true);
@@ -412,12 +415,22 @@ public class AlarmSchedulerPlugin extends Plugin {
 
     // --- SharedPreferences persistence for BootReceiver ---
 
+    public static SharedPreferences getStoragePrefs(Context context) {
+        Context storageContext = context;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                storageContext = context.createDeviceProtectedStorageContext();
+            } catch (Exception ignored) {}
+        }
+        return storageContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
     private void saveAlarmToPrefs(
         String alarmId, long triggerMs, String alarmTime, String alarmLabel,
-        String dismissalType, int pushupTarget, int rampDuration
+        String dismissalType, int pushupTarget, int rampDuration, JSONArray daysOfWeek
     ) {
         try {
-            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences prefs = getStoragePrefs(getContext());
             String existing = prefs.getString(PREFS_KEY, "[]");
             JSONArray alarmsArray = new JSONArray(existing);
 
@@ -430,7 +443,7 @@ public class AlarmSchedulerPlugin extends Plugin {
                 }
             }
 
-            // Add new entry
+            // Add new entry with daysOfWeek
             JSONObject newAlarm = new JSONObject();
             newAlarm.put("alarmId", alarmId);
             newAlarm.put("triggerMs", triggerMs);
@@ -439,9 +452,15 @@ public class AlarmSchedulerPlugin extends Plugin {
             newAlarm.put("dismissalType", dismissalType);
             newAlarm.put("pushupTarget", pushupTarget);
             newAlarm.put("rampDuration", rampDuration);
+            newAlarm.put("daysOfWeek", daysOfWeek != null ? daysOfWeek : new JSONArray());
             filtered.put(newAlarm);
 
-            prefs.edit().putString(PREFS_KEY, filtered.toString()).apply();
+            String jsonStr = filtered.toString();
+            prefs.edit().putString(PREFS_KEY, jsonStr).apply();
+
+            // Also mirror to standard prefs for fallback
+            getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putString(PREFS_KEY, jsonStr).apply();
         } catch (Exception e) {
             Log.e(TAG, "Failed to save alarm to prefs", e);
         }
@@ -449,7 +468,7 @@ public class AlarmSchedulerPlugin extends Plugin {
 
     private void removeAlarmFromPrefs(String alarmId) {
         try {
-            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences prefs = getStoragePrefs(getContext());
             String existing = prefs.getString(PREFS_KEY, "[]");
             JSONArray alarmsArray = new JSONArray(existing);
 
@@ -461,7 +480,10 @@ public class AlarmSchedulerPlugin extends Plugin {
                 }
             }
 
-            prefs.edit().putString(PREFS_KEY, filtered.toString()).apply();
+            String jsonStr = filtered.toString();
+            prefs.edit().putString(PREFS_KEY, jsonStr).apply();
+            getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putString(PREFS_KEY, jsonStr).apply();
         } catch (Exception e) {
             Log.e(TAG, "Failed to remove alarm from prefs", e);
         }
