@@ -51,9 +51,11 @@ interface AlarmSchedulerPluginInterface {
   }>;
 
   clearPendingAlarm(): Promise<{ success: boolean }>;
+
+  launchPushUpActivity(options: { target: number }): Promise<{ completed: boolean; completedReps?: number }>;
 }
 
-const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
+export const AlarmSchedulerNative = registerPlugin<AlarmSchedulerPluginInterface>('AlarmScheduler');
 
 // Convert an alarm ID to a stable positive 32-bit integer for Android notification IDs
 function getNotificationId(alarmId: string): number {

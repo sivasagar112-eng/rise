@@ -52,6 +52,15 @@ class PushUpCounter(
         hasBeenDown = false
     }
 
+    /**
+     * Increment count manually if lighting or pose prevents detection
+     */
+    fun incrementManual() {
+        if (!isCompleted) {
+            currentCount++
+        }
+    }
+
     override fun processPose(landmarks: List<LandmarkData>): ExerciseState {
         if (isCompleted) {
             return ExerciseState(

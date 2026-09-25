@@ -2,9 +2,13 @@ package com.rise.alarm.exercise
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
@@ -83,6 +87,16 @@ class PushUpActivity : AppCompatActivity() {
         setContentView(R.layout.activity_push_up)
 
         // Keep screen on and show over lock screen (alarm context)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Bind views
@@ -98,6 +112,10 @@ class PushUpActivity : AppCompatActivity() {
         // Initialize exercise counter (pure Kotlin, no framework deps)
         exerciseCounter = PushUpCounter(targetCount = targetCount)
         updateCountUI(0)
+
+        // Allow manual rep count by tapping countText or hint
+        countText.setOnClickListener { handleManualRep() }
+        findViewById<View>(R.id.manualRepHint)?.setOnClickListener { handleManualRep() }
 
         // Camera executor for ImageAnalysis
         cameraExecutor = Executors.newSingleThreadExecutor()
@@ -218,11 +236,40 @@ class PushUpActivity : AppCompatActivity() {
         }
     }
 
+    private var lastVibratedCount = 0
+
+    private fun triggerHapticFeedback() {
+        try {
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(80, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(80)
+            }
+        } catch (ignored: Exception) {}
+    }
+
+    private fun handleManualRep() {
+        if (!exerciseCounter.isCompleted) {
+            exerciseCounter.incrementManual()
+            updateCountUI(exerciseCounter.currentCount)
+            triggerHapticFeedback()
+            if (exerciseCounter.isCompleted) {
+                handleExerciseCompleted()
+            }
+        }
+    }
+
     private fun handleStateUpdate(state: ExerciseState) {
         // Must update UI on main thread — this callback comes from the camera executor
         runOnUiThread {
             updateCountUI(state.count)
             statusText.text = state.message
+            if (state.count > lastVibratedCount) {
+                lastVibratedCount = state.count
+                triggerHapticFeedback()
+            }
         }
     }
 
@@ -232,18 +279,20 @@ class PushUpActivity : AppCompatActivity() {
 
     /**
      * Called exactly once when the target rep count is reached.
-     * Sets the activity result and finishes.
-     *
-     * To integrate with the alarm flow:
-     * - Launch PushUpActivity with startActivityForResult / ActivityResultLauncher.
-     * - In onActivityResult, check for RESULT_OK and EXTRA_COMPLETED_COUNT.
-     * - Then call your alarm-stopping logic.
+     * Stops the alarm service, sets the activity result, and finishes.
      */
     private fun handleExerciseCompleted() {
         Log.d(TAG, "Exercise completed: ${exerciseCounter.currentCount} / $targetCount")
         runOnUiThread {
             countText.text = "Complete! ${exerciseCounter.currentCount} / $targetCount"
             statusText.text = "Great job! 💪"
+
+            // Direct native stop of AlarmService so ringing stops immediately
+            try {
+                com.rise.alarm.AlarmService.stopAlarmService(this@PushUpActivity)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to stop alarm service", e)
+            }
 
             val resultIntent = Intent().apply {
                 putExtra(EXTRA_COMPLETED_COUNT, exerciseCounter.currentCount)

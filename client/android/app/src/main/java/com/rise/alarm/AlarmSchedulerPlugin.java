@@ -13,7 +13,10 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import androidx.activity.result.ActivityResult;
+import com.rise.alarm.exercise.PushUpActivity;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -486,6 +489,39 @@ public class AlarmSchedulerPlugin extends Plugin {
                 .edit().putString(PREFS_KEY, jsonStr).apply();
         } catch (Exception e) {
             Log.e(TAG, "Failed to remove alarm from prefs", e);
+        }
+    }
+
+    /**
+     * Launch native CameraX + Google ML Kit PushUpActivity
+     */
+    @PluginMethod
+    public void launchPushUpActivity(PluginCall call) {
+        try {
+            int target = call.getInt("target", 5);
+            Intent intent = new Intent(getContext(), PushUpActivity.class);
+            intent.putExtra(PushUpActivity.EXTRA_TARGET_COUNT, target);
+            startActivityForResult(call, intent, "pushUpActivityResult");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to launch PushUpActivity", e);
+            call.reject("Failed to launch PushUpActivity: " + e.getMessage());
+        }
+    }
+
+    @ActivityCallback
+    private void pushUpActivityResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() == android.app.Activity.RESULT_OK) {
+            Intent data = result.getData();
+            int completedReps = data != null ? data.getIntExtra(PushUpActivity.EXTRA_COMPLETED_COUNT, 0) : 0;
+            JSObject ret = new JSObject();
+            ret.put("completed", true);
+            ret.put("completedReps", completedReps);
+            call.resolve(ret);
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("completed", false);
+            call.resolve(ret);
         }
     }
 }

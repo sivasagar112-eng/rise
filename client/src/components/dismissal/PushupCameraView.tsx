@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { synth } from '../../services/WebAudioSynth';
 import { PoseDetectionEngine, PoseResult } from '../../services/PoseDetectionEngine';
-import { Dumbbell, Check, FlipHorizontal, ShieldAlert, Loader2 } from 'lucide-react';
+import { Dumbbell, Check, FlipHorizontal, ShieldAlert, Loader2, Camera } from 'lucide-react';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { Capacitor } from '@capacitor/core';
+import { AlarmSchedulerNative } from '../../services/AlarmNotificationService';
 
 interface PushupCameraViewProps {
   targetReps: number;
@@ -49,9 +51,15 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const smoothHYRef = useRef<number | null>(null);
 
   // UI State
+  const isNative = Capacitor.isNativePlatform();
+  const [useWebFallback, setUseWebFallback] = useState(!isNative);
+  const autoLaunchedRef = useRef(false);
+
   const [reps, setReps] = useState(0);
   const [phase, setPhase] = useState<PushupPhase>('LOADING_MODEL');
-  const [guidance, setGuidance] = useState('Loading AI model...');
+  const [guidance, setGuidance] = useState(
+    isNative ? 'Opening Google ML Kit...' : 'Loading AI model...'
+  );
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isComplete, setIsComplete] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -84,6 +92,52 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   useEffect(() => {
     targetRepsRef.current = targetReps;
   }, [targetReps]);
+
+  // Native Google ML Kit PushUpActivity launcher
+  const launchNativeMlKit = useCallback(async () => {
+    if (completedRef.current) return;
+    try {
+      setGuidance('Launching Google ML Kit Pose Detection...');
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      const res = await AlarmSchedulerNative.launchPushUpActivity({
+        target: targetRepsRef.current || 5,
+      });
+
+      console.log('[PushupCameraView] Native ML Kit result:', res);
+      if (res && res.completed) {
+        completedRef.current = true;
+        repsRef.current = targetRepsRef.current;
+        setReps(targetRepsRef.current);
+        setIsComplete(true);
+        setPhase('FINISHED');
+        setGuidance(`${targetRepsRef.current} Pushups Completed!`);
+        synth.playRepChirp();
+        setTimeout(() => {
+          onCompleteRef.current();
+        }, 700);
+      } else {
+        setGuidance('ML Kit closed. Tap below to launch again or count manually.');
+      }
+    } catch (err) {
+      console.warn('[PushupCameraView] Native ML Kit error:', err);
+      setGuidance('ML Kit unavailable. Using in-app camera fallback.');
+      setUseWebFallback(true);
+    }
+  }, []);
+
+  // Auto-launch native ML Kit on native Android
+  useEffect(() => {
+    if (isNative && !autoLaunchedRef.current && !completedRef.current) {
+      autoLaunchedRef.current = true;
+      const timer = setTimeout(() => {
+        launchNativeMlKit();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [isNative, launchNativeMlKit]);
 
   // Flip camera
   const handleToggleCamera = useCallback(() => {
@@ -148,6 +202,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
 
   // Load Detector (MoveNet or Offline Optical Tracker)
   useEffect(() => {
+    if (!useWebFallback) return;
     let mounted = true;
     const loadModel = async () => {
       try {
@@ -175,10 +230,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [useWebFallback]);
 
   // Tracking Loop: Plank Posture Check, Elbow Angle, and Torso Y-axis movement
   useEffect(() => {
+    if (!useWebFallback) return;
     let isCurrentEffect = true;
     mountedRef.current = true;
 
@@ -522,7 +578,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode]);
+  }, [facingMode, useWebFallback]);
 
   return (
     <div className="w-full flex flex-col items-center select-none text-center">
@@ -551,151 +607,206 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
         {guidance}
       </p>
 
-      {/* Camera Viewfinder with Skeleton Overlay */}
-      <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-2 shadow-lg">
-        {cameraError ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white bg-neutral-900">
-            <ShieldAlert size={36} className="text-amber-400 mb-2" />
-            <p className="text-xs font-semibold mb-3">{cameraError}</p>
-            <button
-              onClick={handleManualRep}
-              className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold"
-            >
-              Manual Count Instead
-            </button>
+      {/* ML Kit Native Mode vs Web Viewfinder */}
+      {isNative && !useWebFallback ? (
+        <div className="w-full max-w-xs flex flex-col items-center bg-theme-card/90 border-2 border-blue-500/30 rounded-3xl p-6 mb-3 shadow-xl backdrop-blur-md">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-3 text-blue-500 shadow-inner">
+            <Dumbbell size={32} />
           </div>
-        ) : (
-          <>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              disablePictureInPicture
-              controls={false}
-              style={{ pointerEvents: 'none' }}
-              className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-            />
-            {/* Live Skeleton Canvas Overlay */}
-            <canvas
-              ref={overlayCanvasRef}
-              className={`absolute inset-0 w-full h-full pointer-events-none object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-            />
-          </>
-        )}
 
-        {/* Viewfinder Overlays */}
-        <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
-          <div className="flex justify-between items-start w-full">
+          <h3 className="text-base font-bold text-theme-text text-center mb-1">
+            Google ML Kit Pose Detection
+          </h3>
+          <p className="text-xs text-theme-subtext text-center mb-4 leading-relaxed">
+            Accurate, real-time pose tracking with CameraX. Tap below to launch the camera push-up counter.
+          </p>
+
+          <button
+            type="button"
+            onClick={launchNativeMlKit}
+            className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 mb-3 transition-all cursor-pointer"
+          >
+            <Camera size={18} />
+            <span>Open ML Kit Camera</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setUseWebFallback(true)}
+            className="text-[11px] text-theme-subtext hover:text-theme-text underline py-1 transition-colors cursor-pointer"
+          >
+            Or switch to in-app web camera
+          </button>
+        </div>
+      ) : (
+        <>
+          {isNative && (
             <button
-              onClick={handleToggleCamera}
-              className="pointer-events-auto p-2 bg-black/60 hover:bg-black/80 active:scale-95 rounded-full text-white transition-all backdrop-blur-md"
-              aria-label="Switch Camera"
+              type="button"
+              onClick={() => {
+                if (streamRef.current) {
+                  streamRef.current.getTracks().forEach((t) => t.stop());
+                  streamRef.current = null;
+                }
+                setUseWebFallback(false);
+                launchNativeMlKit();
+              }}
+              className="w-full max-w-xs py-2 px-3 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/40 text-blue-500 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 mb-2 transition-all active:scale-95 cursor-pointer"
             >
-              <FlipHorizontal size={16} />
+              <Camera size={14} />
+              <span>Switch to Google ML Kit</span>
             </button>
-            <div className="flex items-center gap-1.5">
-              {/* Live network status badge */}
-              <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
-                <span className={isOnline ? 'text-emerald-400' : 'text-neutral-400'}>
-                  {isOnline ? 'Online' : 'Offline'}
-                </span>
+          )}
+
+          {/* Camera Viewfinder with Skeleton Overlay */}
+          <div className="relative w-full max-w-xs aspect-4/3 bg-black rounded-2xl border-2 border-theme-border overflow-hidden mb-2 shadow-lg">
+            {cameraError ? (
+              <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white bg-neutral-900">
+                <ShieldAlert size={36} className="text-amber-400 mb-2" />
+                <p className="text-xs font-semibold mb-3">{cameraError}</p>
+                <button
+                  type="button"
+                  onClick={handleManualRep}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold"
+                >
+                  Manual Count Instead
+                </button>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  autoPlay
+                  disablePictureInPicture
+                  controls={false}
+                  style={{ pointerEvents: 'none' }}
+                  className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+                />
+                {/* Live Skeleton Canvas Overlay */}
+                <canvas
+                  ref={overlayCanvasRef}
+                  className={`absolute inset-0 w-full h-full pointer-events-none object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+                />
+              </>
+            )}
+
+            {/* Viewfinder Overlays */}
+            <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
+              <div className="flex justify-between items-start w-full">
+                <button
+                  type="button"
+                  onClick={handleToggleCamera}
+                  className="pointer-events-auto p-2 bg-black/60 hover:bg-black/80 active:scale-95 rounded-full text-white transition-all backdrop-blur-md"
+                  aria-label="Switch Camera"
+                >
+                  <FlipHorizontal size={16} />
+                </button>
+                <div className="flex items-center gap-1.5">
+                  {/* Live network status badge */}
+                  <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+                    <span className={isOnline ? 'text-emerald-400' : 'text-neutral-400'}>
+                      {isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
+                    {phase === 'LOADING_MODEL' && !modelReady ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 size={10} className="animate-spin" /> LOADING AI...
+                      </span>
+                    ) : hudData.isPlank ? (
+                      <span className="text-green-400 font-extrabold">PLANK VERIFIED ✓</span>
+                    ) : hudData.tracking ? (
+                      <span className="text-amber-300">GET IN PLANK</span>
+                    ) : (
+                      <span className="text-amber-300">POSITION BODY</span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Status Badge */}
-              <div className="text-[10px] font-bold text-white/90 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10">
-                {phase === 'LOADING_MODEL' && !modelReady ? (
-                  <span className="flex items-center gap-1">
-                    <Loader2 size={10} className="animate-spin" /> LOADING AI...
-                  </span>
-                ) : hudData.isPlank ? (
-                  <span className="text-green-400 font-extrabold">PLANK VERIFIED ✓</span>
-                ) : hudData.tracking ? (
-                  <span className="text-amber-300">GET IN PLANK</span>
-                ) : (
-                  <span className="text-amber-300">POSITION BODY</span>
-                )}
+              {/* Phase Badge */}
+              <div
+                className={`self-center px-4 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  phase === 'DOWN'
+                    ? 'bg-green-500/80 text-white border-green-400 shadow-glow'
+                    : phase === 'GOING_DOWN'
+                    ? 'bg-amber-500/80 text-white border-amber-400'
+                    : phase === 'GOING_UP'
+                    ? 'bg-blue-500/80 text-white border-blue-400'
+                    : 'bg-black/70 text-white/80 border-white/20'
+                }`}
+              >
+                {phase === 'DOWN'
+                  ? '✓ DOWN (PUSH UP!)'
+                  : phase === 'GOING_DOWN'
+                  ? '⬇ GOING DOWN...'
+                  : phase === 'GOING_UP'
+                  ? '⬆ PUSHING UP...'
+                  : phase === 'UP'
+                  ? 'READY (LOWER DOWN)'
+                  : 'GET IN PLANK'}
+              </div>
+
+              {/* Bottom Banner */}
+              <div className="w-full text-center text-xs text-white font-bold bg-black/75 backdrop-blur-md py-1.5 rounded-xl border border-white/10">
+                {phase === 'DOWN'
+                  ? 'PUSH BACK UP NOW!'
+                  : phase === 'GOING_DOWN'
+                  ? 'LOWER CHEST & BEND ELBOWS'
+                  : phase === 'GOING_UP'
+                  ? 'EXTEND ARMS TO TOP'
+                  : 'PLANK POSITION • BEND ELBOWS'}
+              </div>
+            </div>
+
+            {/* Completion Modal */}
+            {isComplete && (
+              <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in z-20">
+                <Check size={52} className="text-green-400 mb-2 animate-bounce" />
+                <span className="text-sm font-extrabold tracking-wider text-white uppercase">
+                  {targetReps} Pushups Verified!
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Real-time HUD: Shoulder / Elbow / Displacement */}
+          <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
+            <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
+              <span>Pushup Form Tracker {hudData.isOffline ? '(Offline)' : '(MoveNet)'}</span>
+              <span className="text-green-400 font-normal">Target: &ge;{hudData.targetDrop}px</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">
+              <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+                <span className="text-blue-400 font-bold block">DISPLACEMENT</span>
+                <span className={`block font-bold text-[10px] ${hudData.sDrop >= hudData.targetDrop ? 'text-green-400' : 'text-neutral-300'}`}>
+                  {hudData.sDrop > 0 ? `+${hudData.sDrop}` : hudData.sDrop}px
+                </span>
+                <span className="text-[8px] text-neutral-500">min {hudData.targetDrop}px</span>
+              </div>
+              <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+                <span className="text-amber-400 font-bold block">ELBOW ANGLE</span>
+                <span className={`block font-bold text-[10px] ${hudData.elbowAngle !== null && hudData.elbowAngle <= 120 ? 'text-green-400' : 'text-neutral-300'}`}>
+                  {hudData.elbowAngle !== null ? `${hudData.elbowAngle}°` : '--'}
+                </span>
+                <span className="text-[8px] text-neutral-500">&le;120&deg; for rep</span>
+              </div>
+              <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
+                <span className="text-purple-400 font-bold block">POSTURE</span>
+                <span className={`block font-bold text-[10px] ${hudData.isPlank ? 'text-green-400' : 'text-amber-400'}`}>
+                  {hudData.isPlank ? 'PLANK ✓' : 'UPRIGHT'}
+                </span>
+                <span className="text-[8px] text-neutral-500">Horizontal</span>
               </div>
             </div>
           </div>
-
-          {/* Phase Badge */}
-          <div
-            className={`self-center px-4 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-              phase === 'DOWN'
-                ? 'bg-green-500/80 text-white border-green-400 shadow-glow'
-                : phase === 'GOING_DOWN'
-                ? 'bg-amber-500/80 text-white border-amber-400'
-                : phase === 'GOING_UP'
-                ? 'bg-blue-500/80 text-white border-blue-400'
-                : 'bg-black/70 text-white/80 border-white/20'
-            }`}
-          >
-            {phase === 'DOWN'
-              ? '✓ DOWN (PUSH UP!)'
-              : phase === 'GOING_DOWN'
-              ? '⬇ GOING DOWN...'
-              : phase === 'GOING_UP'
-              ? '⬆ PUSHING UP...'
-              : phase === 'UP'
-              ? 'READY (LOWER DOWN)'
-              : 'GET IN PLANK'}
-          </div>
-
-          {/* Bottom Banner */}
-          <div className="w-full text-center text-xs text-white font-bold bg-black/75 backdrop-blur-md py-1.5 rounded-xl border border-white/10">
-            {phase === 'DOWN'
-              ? 'PUSH BACK UP NOW!'
-              : phase === 'GOING_DOWN'
-              ? 'LOWER CHEST & BEND ELBOWS'
-              : phase === 'GOING_UP'
-              ? 'EXTEND ARMS TO TOP'
-              : 'PLANK POSITION • BEND ELBOWS'}
-          </div>
-        </div>
-
-        {/* Completion Modal */}
-        {isComplete && (
-          <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in z-20">
-            <Check size={52} className="text-green-400 mb-2 animate-bounce" />
-            <span className="text-sm font-extrabold tracking-wider text-white uppercase">
-              {targetReps} Pushups Verified!
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Real-time HUD: Shoulder / Elbow / Displacement */}
-      <div className="w-full max-w-xs bg-neutral-950/85 border border-neutral-800 rounded-xl p-2.5 mb-3 text-left font-mono text-[10px] space-y-1 shadow-sm">
-        <div className="text-neutral-400 font-bold tracking-wider uppercase text-[9px] border-b border-neutral-800 pb-1 flex justify-between">
-          <span>Pushup Form Tracker {hudData.isOffline ? '(Offline)' : '(MoveNet)'}</span>
-          <span className="text-green-400 font-normal">Target: &ge;{hudData.targetDrop}px</span>
-        </div>
-        <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">
-          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-blue-400 font-bold block">DISPLACEMENT</span>
-            <span className={`block font-bold text-[10px] ${hudData.sDrop >= hudData.targetDrop ? 'text-green-400' : 'text-neutral-300'}`}>
-              {hudData.sDrop > 0 ? `+${hudData.sDrop}` : hudData.sDrop}px
-            </span>
-            <span className="text-[8px] text-neutral-500">min {hudData.targetDrop}px</span>
-          </div>
-          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-amber-400 font-bold block">ELBOW ANGLE</span>
-            <span className={`block font-bold text-[10px] ${hudData.elbowAngle !== null && hudData.elbowAngle <= 120 ? 'text-green-400' : 'text-neutral-300'}`}>
-              {hudData.elbowAngle !== null ? `${hudData.elbowAngle}°` : '--'}
-            </span>
-            <span className="text-[8px] text-neutral-500">&le;120&deg; for rep</span>
-          </div>
-          <div className="bg-neutral-900/90 rounded p-1 border border-neutral-800">
-            <span className="text-purple-400 font-bold block">POSTURE</span>
-            <span className={`block font-bold text-[10px] ${hudData.isPlank ? 'text-green-400' : 'text-amber-400'}`}>
-              {hudData.isPlank ? 'PLANK ✓' : 'UPRIGHT'}
-            </span>
-            <span className="text-[8px] text-neutral-500">Horizontal</span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Rep Count Display */}
       <div className="flex items-baseline justify-center space-x-2 mb-2">
