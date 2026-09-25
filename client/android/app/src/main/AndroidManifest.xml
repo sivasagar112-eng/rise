@@ -27,6 +27,15 @@
 
         </activity>
 
+        <!-- Push-Up Counter Activity (native CameraX + ML Kit) -->
+        <activity
+            android:name=".exercise.PushUpActivity"
+            android:label="Push-Up Counter"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:exported="false" />
+
         <!-- Alarm BroadcastReceiver: Fires when AlarmManager delivers the alarm -->
         <receiver
             android:name=".AlarmReceiver"
