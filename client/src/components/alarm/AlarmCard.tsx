@@ -41,23 +41,6 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
     return alarm.daysOfWeek.map(d => DAYS_SHORT[d]).join(', ');
   };
 
-  const getMethodBadge = () => {
-    switch (alarm.dismissalType) {
-      case 'PUSHUP_MATH':
-        return `${alarm.pushupTarget || 5} Pushups`;
-      case 'BRIGHTNESS':
-        return 'Light Check';
-      case 'CLICK_SHAKE':
-      case 'FACE_AWAY':
-        return '100 Taps + 5 Shakes';
-      case 'OBJECT_MATCH':
-        return 'Object Scan';
-      case 'MATH':
-        return 'Math Challenge';
-      default:
-        return '';
-    }
-  };
 
   // Long press handlers
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
@@ -154,10 +137,6 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
 
             <div className="mt-1 flex items-center space-x-2 text-sm text-theme-subtext">
               <span>{getSubtitle()}</span>
-              <span className="opacity-40">•</span>
-              <span className="text-xs px-2 py-0.5 rounded-full border border-theme-border bg-theme-bg text-theme-text font-medium">
-                {getMethodBadge()}
-              </span>
             </div>
           </div>
 

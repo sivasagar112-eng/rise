@@ -1,24 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { StorageService } from './services/StorageService';
-import { ModelPreloader } from './services/ModelPreloader';
 import { Alarm, WakeLogItem } from './types/alarm';
 import { useAlarmScheduler } from './hooks/useAlarmScheduler';
 import { Header } from './components/layout/Header';
 import { BottomNav, TabType } from './components/layout/BottomNav';
 import { AlarmCard } from './components/alarm/AlarmCard';
-import { AlarmEditorModal } from './components/alarm/AlarmEditorModal';
-import { RingingScreen } from './components/ringing/RingingScreen';
-import { ActivityScreen } from './components/stats/ActivityScreen';
-import { ProfileScreen } from './components/profile/ProfileScreen';
-import { SettingsScreen } from './components/settings/SettingsScreen';
-import { CameraPermissionModal } from './components/onboarding/CameraPermissionModal';
 import { DynamicIslandAlarm } from './components/common/DynamicIslandAlarm';
 import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast';
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
 import { BellOff } from 'lucide-react';
+
+// Lazy-load heavy screens to make initial app launch near instantaneous
+const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal').then((m) => ({ default: m.AlarmEditorModal })));
+const RingingScreen = lazy(() => import('./components/ringing/RingingScreen').then((m) => ({ default: m.RingingScreen })));
+const ActivityScreen = lazy(() => import('./components/stats/ActivityScreen').then((m) => ({ default: m.ActivityScreen })));
+const ProfileScreen = lazy(() => import('./components/profile/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
+const SettingsScreen = lazy(() => import('./components/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const CameraPermissionModal = lazy(() => import('./components/onboarding/CameraPermissionModal').then((m) => ({ default: m.CameraPermissionModal })));
 
 export const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -72,11 +73,6 @@ export const App: React.FC = () => {
     setActiveTab,
     showToast,
   });
-
-  // Preload ML models (MoveNet + COCO-SSD) in background at app startup
-  useEffect(() => {
-    ModelPreloader.preloadAll();
-  }, []);
 
   // Sync with remote server on mount if logged in
   useEffect(() => {
@@ -278,16 +274,20 @@ export const App: React.FC = () => {
 
         {/* Tab 2: Activity History */}
         {activeTab === 'ACTIVITY' && (
-          <div className="animate-fade-in">
-            <ActivityScreen />
-          </div>
+          <Suspense fallback={null}>
+            <div className="animate-fade-in">
+              <ActivityScreen />
+            </div>
+          </Suspense>
         )}
 
         {/* Tab 3: Profile */}
         {activeTab === 'PROFILE' && (
-          <div className="animate-fade-in">
-            <ProfileScreen />
-          </div>
+          <Suspense fallback={null}>
+            <div className="animate-fade-in">
+              <ProfileScreen />
+            </div>
+          </Suspense>
         )}
       </main>
 
@@ -303,16 +303,18 @@ export const App: React.FC = () => {
 
       {/* Alarm Editor Modal */}
       {isEditorOpen && (
-        <AlarmEditorModal
-          key={editingAlarm ? editingAlarm.id : 'new-alarm'}
-          alarm={editingAlarm}
-          onSave={handleSaveAlarm}
-          onDelete={handleDeleteAlarm}
-          onClose={() => {
-            setIsEditorOpen(false);
-            setEditingAlarm(null);
-          }}
-        />
+        <Suspense fallback={null}>
+          <AlarmEditorModal
+            key={editingAlarm ? editingAlarm.id : 'new-alarm'}
+            alarm={editingAlarm}
+            onSave={handleSaveAlarm}
+            onDelete={handleDeleteAlarm}
+            onClose={() => {
+              setIsEditorOpen(false);
+              setEditingAlarm(null);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Settings Modal */}
@@ -325,11 +327,13 @@ export const App: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-theme-card border border-theme-border rounded-2xl max-h-[90vh] overflow-y-auto"
           >
-            <SettingsScreen
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              onClose={() => setIsSettingsOpen(false)}
-            />
+            <Suspense fallback={null}>
+              <SettingsScreen
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                onClose={() => setIsSettingsOpen(false)}
+              />
+            </Suspense>
           </div>
         </div>
       )}
@@ -341,15 +345,19 @@ export const App: React.FC = () => {
 
       {/* Ringing Screen (Strict No-Snooze Challenge) */}
       {activeRingingAlarm && (
-        <RingingScreen
-          alarm={activeRingingAlarm}
-          onDismissVerified={handleDismissVerified}
-        />
+        <Suspense fallback={null}>
+          <RingingScreen
+            alarm={activeRingingAlarm}
+            onDismissVerified={handleDismissVerified}
+          />
+        </Suspense>
       )}
 
       {/* First Launch Camera Permission Explainer */}
       {showOnboarding && (
-        <CameraPermissionModal onDismiss={() => setShowOnboarding(false)} />
+        <Suspense fallback={null}>
+          <CameraPermissionModal onDismiss={() => setShowOnboarding(false)} />
+        </Suspense>
       )}
 
       {/* Next Alarm Countdown Toast Pill (Floating at Bottom) */}

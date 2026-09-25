@@ -42,5 +42,19 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/@tensorflow') || id.includes('node_modules/@tensorflow-models')) {
+            return 'tensorflow-vendor';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'lucide-icons';
+          }
+        },
+      },
+    },
   }
 });

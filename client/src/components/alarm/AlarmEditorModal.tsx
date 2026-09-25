@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Sparkles } from 'lucide-react';
-import { useCameraVision } from '../../hooks/useCameraVision';
+import { X, Trash2, Dumbbell, Calculator, Sun, Zap, Camera, Check } from 'lucide-react';
 import { ScrollPicker } from './ScrollPicker';
 
 interface AlarmEditorModalProps {
@@ -21,6 +20,39 @@ const DAYS = [
   { label: 'S', name: 'Sat', val: 6 },
 ];
 
+const TASK_OPTIONS: { type: DismissalType; title: string; subtitle: string; icon: React.ReactNode }[] = [
+  {
+    type: 'PUSHUP_MATH',
+    title: 'Push-ups',
+    subtitle: 'Counts reps with camera',
+    icon: <Dumbbell size={16} className="text-blue-400" />,
+  },
+  {
+    type: 'MATH',
+    title: 'Math Challenge',
+    subtitle: 'Solve mental math equations',
+    icon: <Calculator size={16} className="text-emerald-400" />,
+  },
+  {
+    type: 'BRIGHTNESS',
+    title: 'Light Check',
+    subtitle: 'Turn on room light or walk to bright area',
+    icon: <Sun size={16} className="text-amber-400" />,
+  },
+  {
+    type: 'CLICK_SHAKE',
+    title: 'Taps & Shakes',
+    subtitle: '100 taps + 5 device shakes',
+    icon: <Zap size={16} className="text-purple-400" />,
+  },
+  {
+    type: 'OBJECT_MATCH',
+    title: 'Object Scan',
+    subtitle: 'Scan a room object (mug, toothbrush)',
+    icon: <Camera size={16} className="text-pink-400" />,
+  },
+];
+
 export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
   alarm,
   onSave,
@@ -35,7 +67,9 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
   const [label, setLabel] = useState<string>(alarm ? alarm.label : '');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(alarm ? alarm.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]);
-  const dismissalType: DismissalType = alarm?.dismissalType === 'FACE_AWAY' ? 'CLICK_SHAKE' : (alarm?.dismissalType || 'PUSHUP_MATH');
+  const [dismissalType, setDismissalType] = useState<DismissalType>(
+    alarm?.dismissalType === 'FACE_AWAY' ? 'CLICK_SHAKE' : (alarm?.dismissalType || 'PUSHUP_MATH')
+  );
   const [pushupTarget, setPushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
   const [rampDuration, setRampDuration] = useState<number>(alarm ? alarm.rampDuration : 30);
   const [preAlarmMinutes, setPreAlarmMinutes] = useState<number>(
@@ -48,11 +82,6 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
   // Legacy reference descriptor (kept for backward compatibility)
   const [referenceDescriptor] = useState<string | null>(alarm?.referenceDescriptor || null);
-  const { videoRef: _vr, startCamera: _sc, stopCamera: _stop, extractFeatureDescriptor: _eff } = useCameraVision();
-  void _vr; void _sc; void _stop; void _eff;
-
-  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  void captureCanvasRef;
 
   const toggleDay = (day: number) => {
     setDaysOfWeek((prev) =>
@@ -235,58 +264,85 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
             </div>
           </div>
 
-          {/* ── Automatic Wake-Up Challenge (No manual selection needed) ── */}
-          <div className="p-4 rounded-2xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 via-purple-500/5 to-transparent">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                  <Sparkles size={17} />
-                </div>
-                <div>
-                  <span className="text-sm font-extrabold text-white block leading-tight">
-                    Smart Wake-Up Challenge
-                  </span>
-                  <span className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider">
-                    Automatic • No Snooze
-                  </span>
-                </div>
-              </div>
-              <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold tracking-wider uppercase border border-blue-500/30">
-                Random 1 of 5
+          {/* ── Wake-Up Challenge Task Selector ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
+                Wake-Up Challenge
+              </label>
+              <span className="text-[10px] text-neutral-500 font-medium">
+                Select dismissal task
               </span>
             </div>
 
-            <p className="text-xs text-neutral-400 leading-relaxed mb-3">
-              Rise automatically assigns a surprise challenge when your alarm rings (Pushups, 100 Taps + 5 Shakes, Light Check, Scan Object, or Math) so you wake up instantly every morning.
-            </p>
-
-            {/* Reps setting when pushups challenge is picked */}
-            <div className="pt-3 border-t border-white/10 flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold tracking-wider uppercase text-neutral-300">
-                  Pushups Reps:
-                </span>
-                <span className="text-[9px] text-neutral-500">
-                  Target if pushups are picked
-                </span>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                {[3, 5, 10, 15].map((cnt) => (
+            <div className="space-y-2">
+              {TASK_OPTIONS.map((task) => {
+                const isSelected = dismissalType === task.type;
+                return (
                   <button
-                    key={cnt}
+                    key={task.type}
                     type="button"
-                    onClick={() => setPushupTarget(cnt)}
-                    className={`w-8 h-8 text-xs font-extrabold rounded-xl border transition-all ${
-                      pushupTarget === cnt
-                        ? 'border-blue-500 bg-blue-500 text-white shadow-sm shadow-blue-500/30'
-                        : 'border-white/10 bg-white/5 text-neutral-400 hover:border-white/30'
+                    onClick={() => setDismissalType(task.type)}
+                    className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-500/15 shadow-sm shadow-blue-500/10'
+                        : 'border-white/10 bg-white/5 hover:border-white/20'
                     }`}
                   >
-                    {cnt}
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center border ${
+                        isSelected ? 'bg-blue-500/20 border-blue-500/40' : 'bg-white/5 border-white/10'
+                      }`}>
+                        {task.icon}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span>{task.title}</span>
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          {task.subtitle}
+                        </div>
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-white">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
+
+            {/* Reps setting when pushups is selected */}
+            {dismissalType === 'PUSHUP_MATH' && (
+              <div className="mt-2 p-3 rounded-xl border border-blue-500/25 bg-blue-500/5 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[11px] font-bold text-neutral-200">
+                    Push-up Target Reps
+                  </span>
+                  <span className="text-[9px] text-neutral-500">
+                    Reps needed to dismiss alarm
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  {[3, 5, 10, 15, 20].map((cnt) => (
+                    <button
+                      key={cnt}
+                      type="button"
+                      onClick={() => setPushupTarget(cnt)}
+                      className={`w-8 h-8 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
+                        pushupTarget === cnt
+                          ? 'border-blue-500 bg-blue-500 text-white shadow-sm shadow-blue-500/30'
+                          : 'border-white/10 bg-white/5 text-neutral-400 hover:border-white/30'
+                      }`}
+                    >
+                      {cnt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Volume Ramp & Pre-alarm ── */}

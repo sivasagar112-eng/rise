@@ -99,8 +99,14 @@ class PushUpActivity : AppCompatActivity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // Boost screen brightness to 100% so display illuminates face and room in the dark
+        val lp = window.attributes
+        lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+        window.attributes = lp
+
         // Bind views
         previewView = findViewById(R.id.previewView)
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
         countText = findViewById(R.id.countText)
         statusText = findViewById(R.id.statusText)
         permissionOverlay = findViewById(R.id.permissionOverlay)
@@ -223,8 +229,22 @@ class PushUpActivity : AppCompatActivity() {
         try {
             // Unbind any existing use cases before rebinding
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+            val camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
             Log.d(TAG, "Camera bound successfully")
+
+            // Boost front camera exposure in dim / morning indoor lighting
+            try {
+                val exposureState = camera.cameraInfo.exposureState
+                if (exposureState.isExposureCompensationSupported) {
+                    val upper = exposureState.exposureCompensationRange.upper
+                    val targetIndex = (upper * 0.6).toInt().coerceAtLeast(1)
+                    camera.cameraControl.setExposureCompensationIndex(targetIndex)
+                    Log.d(TAG, "Exposure compensation boosted to index $targetIndex of $upper")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set exposure compensation", e)
+            }
+
             runOnUiThread {
                 statusText.text = "Get in position…"
             }
