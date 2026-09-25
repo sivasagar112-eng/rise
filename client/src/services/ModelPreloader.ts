@@ -77,11 +77,18 @@ export class ModelPreloader {
             modelUrl: localUrl,
           });
         } catch (localErr) {
-          console.warn('[ModelPreloader] Absolute path failed, falling back to relative /models/coco-ssd/model.json:', localErr);
-          model = await cocoSsd.load({
-            base: 'lite_mobilenet_v2',
-            modelUrl: '/models/coco-ssd/model.json',
-          });
+          console.warn('[ModelPreloader] Absolute path failed, falling back to relative or remote:', localErr);
+          try {
+            model = await cocoSsd.load({
+              base: 'lite_mobilenet_v2',
+              modelUrl: '/models/coco-ssd/model.json',
+            });
+          } catch (relErr) {
+            console.warn('[ModelPreloader] Relative path failed, loading standard base model:', relErr);
+            model = await cocoSsd.load({
+              base: 'lite_mobilenet_v2',
+            });
+          }
         }
 
         cocoModel = model;
