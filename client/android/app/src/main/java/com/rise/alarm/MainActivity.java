@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     private static final String TAG = "RiseMainActivity";
     private static final int CAMERA_PERMISSION_CODE = 101;
     private static final int NOTIFICATION_PERMISSION_CODE = 102;
+    private PermissionRequest pendingPermissionRequest = null;
 
     private NetworkMonitor.NetworkStatusListener networkListener;
 
@@ -65,15 +66,15 @@ public class MainActivity extends BridgeActivity {
                             try {
                                 Log.d(TAG, "WebView onPermissionRequest: " + java.util.Arrays.toString(request.getResources()));
                                 if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                                    pendingPermissionRequest = request;
                                     ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+                                    Log.d(TAG, "WebView camera permission pending user dialog");
+                                    return;
                                 }
                                 request.grant(request.getResources());
-                                Log.d(TAG, "WebView onPermissionRequest: GRANTED");
+                                Log.d(TAG, "WebView onPermissionRequest: GRANTED immediately");
                             } catch (Exception e) {
                                 Log.e(TAG, "Error in onPermissionRequest", e);
-                                try {
-                                    request.grant(request.getResources());
-                                } catch (Exception ignored) {}
                             }
                         });
                     }
@@ -168,9 +169,10 @@ public class MainActivity extends BridgeActivity {
         int rampDuration = intent.getIntExtra("rampDuration", 30);
 
         // Task configuration fallback handling with explicit logging
-        if (dismissalType == null || dismissalType.trim().isEmpty()) {
-            Log.w(TAG, "handleAlarmIntent: dismissalType missing, defaulting to PUSHUP_MATH");
-            dismissalType = "PUSHUP_MATH";
+        if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
+            String[] tasks = {"PUSHUP_MATH", "OBJECT_MATCH", "MATH", "BRIGHTNESS", "CLICK_SHAKE"};
+            dismissalType = tasks[new java.util.Random().nextInt(tasks.length)];
+            Log.d(TAG, "handleAlarmIntent: dismissalType resolved to random task: " + dismissalType);
         }
         if (pushupTarget <= 0) {
             Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 5");
@@ -271,6 +273,24 @@ public class MainActivity extends BridgeActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (pendingPermissionRequest != null) {
+                    try {
+                        pendingPermissionRequest.grant(pendingPermissionRequest.getResources());
+                        Log.d(TAG, "Granted pendingPermissionRequest after user approved dialog");
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error granting pending permission request", e);
+                    }
+                    pendingPermissionRequest = null;
+                }
+            } else {
+                if (pendingPermissionRequest != null) {
+                    try {
+                        pendingPermissionRequest.deny();
+                    } catch (Exception ignored) {}
+                    pendingPermissionRequest = null;
+                }
+            }
             // Once Camera dialog is answered, immediately prompt for Notifications
             requestNotificationSecond();
         } else if (requestCode == NOTIFICATION_PERMISSION_CODE) {

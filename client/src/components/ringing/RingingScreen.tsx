@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Alarm } from '../../types/alarm';
+import { Alarm, DismissalType } from '../../types/alarm';
 import { synth } from '../../services/WebAudioSynth';
 import { PushupCameraView } from '../dismissal/PushupCameraView';
 import { MathChallengeView } from '../dismissal/MathChallengeView';
@@ -63,6 +63,14 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
   alarm,
   onDismissVerified,
 }) => {
+  const [effectiveDismissalType] = useState<DismissalType>(() => {
+    if (!alarm.dismissalType || alarm.dismissalType === 'RANDOM') {
+      const tasks: DismissalType[] = ['PUSHUP_MATH', 'OBJECT_MATCH', 'MATH', 'BRIGHTNESS', 'CLICK_SHAKE'];
+      return tasks[Math.floor(Math.random() * tasks.length)];
+    }
+    return alarm.dismissalType;
+  });
+
   const handleAllTasksDone = React.useCallback(() => {
     onDismissVerified();
   }, [onDismissVerified]);
@@ -99,13 +107,13 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
 
       {/* Center Action Area: Interactive Camera / Pushup / Math Task */}
       <div className="w-full max-w-md mx-auto flex-1 flex flex-col items-center justify-center my-4">
-        {alarm.dismissalType === 'BRIGHTNESS' ? (
+        {effectiveDismissalType === 'BRIGHTNESS' ? (
           <BrightnessCameraView onComplete={handleAllTasksDone} />
-        ) : alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY' ? (
+        ) : effectiveDismissalType === 'CLICK_SHAKE' || (effectiveDismissalType as string) === 'FACE_AWAY' ? (
           <ClickShakeView onComplete={handleAllTasksDone} />
-        ) : alarm.dismissalType === 'OBJECT_MATCH' ? (
+        ) : effectiveDismissalType === 'OBJECT_MATCH' ? (
           <ObjectMatchCameraView onComplete={handleAllTasksDone} />
-        ) : alarm.dismissalType === 'MATH' ? (
+        ) : effectiveDismissalType === 'MATH' ? (
           <MathChallengeView totalQuestions={3} onComplete={handleAllTasksDone} />
         ) : (
           <PushupCameraView

@@ -1,4 +1,5 @@
 export type DismissalType =
+  | 'RANDOM'
   | 'PUSHUP_MATH'
   | 'BRIGHTNESS'
   | 'CLICK_SHAKE'

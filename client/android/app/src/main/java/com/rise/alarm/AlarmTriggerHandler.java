@@ -94,10 +94,11 @@ public class AlarmTriggerHandler {
             return;
         }
 
-        // Handle task config defaults explicitly and log
-        if (dismissalType == null || dismissalType.trim().isEmpty()) {
-            Log.w(TAG, "dismissalType missing for alarm " + alarmId + ", defaulting to PUSHUP_MATH");
-            dismissalType = "PUSHUP_MATH";
+        // Handle task config defaults & RANDOM assignment explicitly and log
+        if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
+            String[] tasks = {"PUSHUP_MATH", "OBJECT_MATCH", "MATH", "BRIGHTNESS", "CLICK_SHAKE"};
+            dismissalType = tasks[new java.util.Random().nextInt(tasks.length)];
+            Log.d(TAG, "Assigned random task for alarm " + alarmId + ": " + dismissalType);
         }
         if (pushupTarget <= 0) {
             Log.w(TAG, "pushupTarget invalid (" + pushupTarget + ") for alarm " + alarmId + ", defaulting to 5");

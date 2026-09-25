@@ -1,13 +1,16 @@
 package com.rise.alarm.exercise
 
+import kotlin.math.abs
+
 /**
- * Push-up counter implementing the [ExerciseCounter] interface.
+ * Enhanced push-up counter implementing the [ExerciseCounter] interface.
  *
  * Pure Kotlin with no Android framework or ML Kit dependencies.
- * Uses a three-state machine (UP → TRANSITION → DOWN → TRANSITION → UP)
- * with configurable debounce to prevent flickering at angle boundaries.
- *
- * One rep is counted on a full UP → DOWN → UP cycle.
+ * Uses an adaptive state machine (UP → DOWN → UP) with:
+ * - Calibrated angle thresholds for front-facing camera perspective on the floor (DOWN <= 102°, UP >= 142°).
+ * - Instantaneous inflection detection for fluid pushups (no freezing required at the bottom).
+ * - Vertical shoulder displacement tracking to reinforce elbow angle analysis and tolerate partial wrist occlusion.
+ * - Fault tolerance for transient frame dropouts.
  *
  * Landmark type constants match ML Kit PoseLandmark:
  *   11 = LEFT_SHOULDER, 12 = RIGHT_SHOULDER
@@ -16,10 +19,10 @@ package com.rise.alarm.exercise
  */
 class PushUpCounter(
     override val targetCount: Int,
-    private val upAngleThreshold: Double = 160.0,
-    private val downAngleThreshold: Double = 90.0,
-    private val minConfidence: Float = 0.5f,
-    private val requiredConsecutiveFrames: Int = 3
+    private val upAngleThreshold: Double = 142.0,
+    private val downAngleThreshold: Double = 102.0,
+    private val minConfidence: Float = 0.35f,
+    private val requiredConsecutiveFrames: Int = 2
 ) : ExerciseCounter {
 
     // ML Kit PoseLandmark type constants
@@ -43,6 +46,11 @@ class PushUpCounter(
     private var candidatePhase: PosePhase = PosePhase.UP
     private var consecutiveFramesInCandidate: Int = 0
     private var hasBeenDown: Boolean = false
+    private var missedFrames: Int = 0
+
+    // Vertical tracking
+    private var baselineShoulderY: Float? = null
+    private var lastRecordedAngle: Double = 170.0
 
     override fun reset() {
         currentCount = 0
@@ -50,6 +58,9 @@ class PushUpCounter(
         candidatePhase = PosePhase.UP
         consecutiveFramesInCandidate = 0
         hasBeenDown = false
+        missedFrames = 0
+        baselineShoulderY = null
+        lastRecordedAngle = 170.0
     }
 
     /**
@@ -67,20 +78,24 @@ class PushUpCounter(
                 count = currentCount,
                 phase = confirmedPhase,
                 isTracking = false,
-                message = "Complete! $currentCount / $targetCount"
+                message = "Goal reached! $currentCount / $targetCount"
             )
         }
 
         if (landmarks.isEmpty()) {
-            // No pose detected — reset candidate streak but keep confirmed state
-            consecutiveFramesInCandidate = 0
+            missedFrames++
+            if (missedFrames > 5) {
+                consecutiveFramesInCandidate = 0
+            }
             return ExerciseState(
                 count = currentCount,
                 phase = confirmedPhase,
                 isTracking = false,
-                message = "Get in frame — no pose detected"
+                message = if (currentCount > 0) "Keep going! ($currentCount/$targetCount)" else "Get in frame — arms visible"
             )
         }
+
+        missedFrames = 0
 
         // Extract relevant landmarks
         val leftShoulder = findLandmark(landmarks, LEFT_SHOULDER)
@@ -90,11 +105,10 @@ class PushUpCounter(
         val leftWrist = findLandmark(landmarks, LEFT_WRIST)
         val rightWrist = findLandmark(landmarks, RIGHT_WRIST)
 
-        // Compute elbow angles for each side that has sufficient confidence
+        // Compute elbow angles
         val leftAngle = computeArmAngle(leftShoulder, leftElbow, leftWrist)
         val rightAngle = computeArmAngle(rightShoulder, rightElbow, rightWrist)
 
-        // Use the average of available angles, or a single side if only one is visible
         val angle: Double? = when {
             leftAngle != null && rightAngle != null -> (leftAngle + rightAngle) / 2.0
             leftAngle != null -> leftAngle
@@ -102,8 +116,15 @@ class PushUpCounter(
             else -> null
         }
 
+        // Compute average shoulder Y for vertical displacement tracking
+        val currentShoulderY: Float? = when {
+            leftShoulder != null && rightShoulder != null -> (leftShoulder.y + rightShoulder.y) / 2f
+            leftShoulder != null -> leftShoulder.y
+            rightShoulder != null -> rightShoulder.y
+            else -> null
+        }
+
         if (angle == null || angle.isNaN()) {
-            consecutiveFramesInCandidate = 0
             return ExerciseState(
                 count = currentCount,
                 phase = confirmedPhase,
@@ -112,30 +133,59 @@ class PushUpCounter(
             )
         }
 
-        // Classify the instantaneous phase from the angle
-        val instantPhase = classifyPhase(angle)
+        lastRecordedAngle = angle
 
-        // Debounce: only accept a state transition after N consecutive frames
-        if (instantPhase == candidatePhase) {
-            consecutiveFramesInCandidate++
-        } else {
-            candidatePhase = instantPhase
-            consecutiveFramesInCandidate = 1
-        }
-
-        if (consecutiveFramesInCandidate >= requiredConsecutiveFrames && candidatePhase != confirmedPhase) {
-            confirmedPhase = candidatePhase
-
-            // Count a rep on the UP transition, but only if we've been through DOWN
-            if (confirmedPhase == PosePhase.DOWN) {
-                hasBeenDown = true
-            } else if (confirmedPhase == PosePhase.UP && hasBeenDown) {
-                currentCount++
-                hasBeenDown = false
+        // Calibrate baseline shoulder height when arms are extended
+        if (angle >= upAngleThreshold && currentShoulderY != null) {
+            baselineShoulderY = if (baselineShoulderY == null) {
+                currentShoulderY
+            } else {
+                baselineShoulderY!! * 0.85f + currentShoulderY * 0.15f
             }
         }
 
-        // Build status message
+        // Vertical drop check
+        val verticalDrop = if (baselineShoulderY != null && currentShoulderY != null) {
+            currentShoulderY - baselineShoulderY!!
+        } else 0f
+
+        // Classify instantaneous phase with hybrid angle + vertical drop
+        val isDeepDrop = verticalDrop > 35f && angle <= (downAngleThreshold + 10.0)
+        val instantPhase = if (angle <= downAngleThreshold || isDeepDrop) {
+            PosePhase.DOWN
+        } else if (angle >= upAngleThreshold && (verticalDrop < 20f || baselineShoulderY == null)) {
+            PosePhase.UP
+        } else {
+            PosePhase.TRANSITION
+        }
+
+        // Inflection optimization: entering DOWN is registered with high responsiveness
+        if (instantPhase == PosePhase.DOWN) {
+            hasBeenDown = true
+            confirmedPhase = PosePhase.DOWN
+            candidatePhase = PosePhase.DOWN
+            consecutiveFramesInCandidate = requiredConsecutiveFrames
+        } else {
+            if (instantPhase == candidatePhase) {
+                consecutiveFramesInCandidate++
+            } else {
+                candidatePhase = instantPhase
+                consecutiveFramesInCandidate = 1
+            }
+
+            val framesNeeded = requiredConsecutiveFrames
+
+            if (consecutiveFramesInCandidate >= framesNeeded) {
+                if (candidatePhase == PosePhase.UP && hasBeenDown) {
+                    currentCount++
+                    hasBeenDown = false
+                    confirmedPhase = PosePhase.UP
+                } else if (candidatePhase != confirmedPhase) {
+                    confirmedPhase = candidatePhase
+                }
+            }
+        }
+
         val message = buildStatusMessage(angle)
 
         return ExerciseState(
@@ -161,29 +211,21 @@ class PushUpCounter(
         return if (angle.isNaN()) null else angle
     }
 
-    private fun classifyPhase(angle: Double): PosePhase {
-        return when {
-            angle >= upAngleThreshold -> PosePhase.UP
-            angle <= downAngleThreshold -> PosePhase.DOWN
-            else -> PosePhase.TRANSITION
-        }
-    }
-
     private fun buildStatusMessage(angle: Double): String {
         val angleStr = "%.0f°".format(angle)
-        return when (confirmedPhase) {
-            PosePhase.UP -> {
-                if (currentCount == 0 && !hasBeenDown) {
-                    "Arms extended — ready ($angleStr)"
+        return when {
+            confirmedPhase == PosePhase.DOWN || hasBeenDown -> {
+                "Chest down — now push up!"
+            }
+            confirmedPhase == PosePhase.UP -> {
+                if (currentCount == 0) {
+                    "Ready! Lower your chest to begin"
                 } else {
-                    "Push-ups: $currentCount / $targetCount  ($angleStr)"
+                    "Push-ups: $currentCount / $targetCount"
                 }
             }
-            PosePhase.TRANSITION -> {
-                if (hasBeenDown) "Push up! ($angleStr)" else "Going down… ($angleStr)"
-            }
-            PosePhase.DOWN -> {
-                "Down — now push up! ($angleStr)"
+            else -> {
+                if (hasBeenDown) "Push all the way up!" else "Lower down towards floor ($angleStr)"
             }
         }
     }
