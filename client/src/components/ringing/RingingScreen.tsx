@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Alarm } from '../../types/alarm';
 import { synth } from '../../services/WebAudioSynth';
 import { PushupCameraView } from '../dismissal/PushupCameraView';
@@ -14,16 +14,34 @@ interface RingingScreenProps {
   onDismissVerified: () => void;
 }
 
-const VolumeProgressBar: React.FC = () => {
+interface VolumeProgressBarProps {
+  rampDurationSeconds?: number;
+}
+
+const VolumeProgressBar: React.FC<VolumeProgressBarProps> = ({ rampDurationSeconds = 30 }) => {
   const [volumeProgress, setVolumeProgress] = useState<number>(0);
+  const startTimeRef = useRef<number>(Date.now());
 
   // Track volume ramp up in isolated component so RingingScreen and camera views do NOT re-render
   useEffect(() => {
-    const timer = setInterval(() => {
-      setVolumeProgress(synth.getRampProgress());
-    }, 250);
+    startTimeRef.current = Date.now();
+    const durationMs = Math.max(5, rampDurationSeconds || 30) * 1000;
+
+    const update = () => {
+      // If web audio synth is active, read its ramp; otherwise calculate based on elapsed time from alarm trigger
+      if (synth.isPlaying) {
+        setVolumeProgress(synth.getRampProgress());
+      } else {
+        const elapsed = Date.now() - startTimeRef.current;
+        const progress = Math.min(100, Math.round((elapsed / durationMs) * 100));
+        setVolumeProgress(progress);
+      }
+    };
+
+    update();
+    const timer = setInterval(update, 250);
     return () => clearInterval(timer);
-  }, []);
+  }, [rampDurationSeconds]);
 
   return (
     <div className="w-full max-w-xs flex items-center space-x-2 px-3 py-2 rounded-xl border border-theme-border bg-theme-card mb-2 shadow-sm">
@@ -76,7 +94,7 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
         </div>
 
         {/* Volume Ramp Progress Bar (Isolated to prevent camera re-renders) */}
-        <VolumeProgressBar />
+        <VolumeProgressBar rampDurationSeconds={alarm.rampDuration || 30} />
       </div>
 
       {/* Center Action Area: Interactive Camera / Pushup / Math Task */}

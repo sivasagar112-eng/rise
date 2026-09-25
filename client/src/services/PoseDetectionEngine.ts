@@ -190,7 +190,7 @@ export class OfflineTorsoTracker {
       let isBodyTracked = false;
       let isUpright = false;
 
-      if (totalWeight > 1200 && maxActiveY > minActiveY + 18) {
+      if (totalWeight > 250 && maxActiveY > minActiveY + 10) {
         // Robust bounds excluding sparse noise (10th to 90th percentile)
         let accY = 0;
         let p10Y = minActiveY;
@@ -206,7 +206,7 @@ export class OfflineTorsoTracker {
         const comX = weightedXSum / totalWeight;
 
         // Check if user is upright (standing/sitting) vs horizontal (pushup/plank)
-        if (activeHeight > activeWidth * 1.8 && activeHeight > sh * 0.6) {
+        if (activeHeight > activeWidth * 2.2 && activeHeight > sh * 0.7) {
           isUpright = true;
         }
 
@@ -224,17 +224,17 @@ export class OfflineTorsoTracker {
         rawMidX = comX * scaleX;
         rawW = Math.max(80, activeWidth * scaleX);
 
-        // Optical mass presence check: active movement in front of camera
-        if (totalWeight > 80 && (p90Y - p10Y) >= 10) {
+        isBodyTracked = true;
+      } else {
+        // Maintain smoothed position on small motions or initialize to frame center
+        rawSY = this.smoothSY ?? (vh * 0.35);
+        rawCY = this.smoothCY ?? (vh * 0.48);
+        rawHY = this.smoothHY ?? (vh * 0.65);
+        rawMidX = this.smoothMidX ?? (vw * 0.5);
+        rawW = this.smoothWidth ?? (vw * 0.45);
+        if (totalWeight > 60 || this.smoothSY !== null) {
           isBodyTracked = true;
         }
-      } else {
-        // Fallback gentle estimation centered in frame
-        rawSY = vh * 0.35;
-        rawCY = vh * 0.48;
-        rawHY = vh * 0.65;
-        rawMidX = vw * 0.5;
-        rawW = vw * 0.45;
       }
 
       // Smooth positions with exponential moving average to prevent camera jitter
@@ -303,10 +303,10 @@ export class OfflineTorsoTracker {
         chest,
         hip,
         isTracking: isBodyTracked,
-        leftElbowAngle: 90,
-        rightElbowAngle: 90,
-        avgElbowAngle: 90,
-        confidence: isBodyTracked ? 0.92 : 0.2,
+        leftElbowAngle: null,
+        rightElbowAngle: null,
+        avgElbowAngle: null,
+        confidence: isBodyTracked ? 0.85 : 0.2,
         isBodyVisible: isBodyTracked,
         hasShoulder: true,
         hasElbow: true,
@@ -336,7 +336,6 @@ let detector: poseDetection.PoseDetector | null = null;
 let loading: Promise<poseDetection.PoseDetector | null> | null = null;
 
 export class PoseDetectionEngine {
-  private static forceOffline = false;
   private static inputCanvas: HTMLCanvasElement | null = null;
   private static inputCtx: CanvasRenderingContext2D | null = null;
 
@@ -353,7 +352,6 @@ export class PoseDetectionEngine {
         await tf.setBackend('webgl');
         tf.env().set('WEBGL_CPU_FORWARD', false);
         tf.env().set('WEBGL_PACK', true);
-        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
       } catch {
         // fallback to default backend
       }
@@ -364,7 +362,7 @@ export class PoseDetectionEngine {
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const localUrl = `${origin}/models/movenet/model.json`;
 
-      let d: poseDetection.PoseDetector;
+      let d: poseDetection.PoseDetector | null = null;
       try {
         d = await poseDetection.createDetector(
           poseDetection.SupportedModels.MoveNet,
@@ -375,32 +373,56 @@ export class PoseDetectionEngine {
         );
       } catch (localErr) {
         console.warn('[PoseEngine] Absolute modelUrl failed, trying relative /models/movenet/model.json:', localErr);
-        d = await poseDetection.createDetector(
-          poseDetection.SupportedModels.MoveNet,
-          {
-            modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
-            modelUrl: '/models/movenet/model.json',
+        try {
+          d = await poseDetection.createDetector(
+            poseDetection.SupportedModels.MoveNet,
+            {
+              modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+              modelUrl: '/models/movenet/model.json',
+            }
+          );
+        } catch (relErr) {
+          console.warn('[PoseEngine] Relative modelUrl failed, trying tfhub CDN:', relErr);
+          try {
+            d = await poseDetection.createDetector(
+              poseDetection.SupportedModels.MoveNet,
+              {
+                modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+              }
+            );
+          } catch (cdnErr) {
+            console.warn('[PoseEngine] All MoveNet loaders failed:', cdnErr);
           }
-        );
+        }
       }
-      detector = d;
-      console.log('[PoseEngine] MoveNet Lightning loaded successfully from local bundle');
+      if (d) {
+        detector = d;
+        console.log('[PoseEngine] MoveNet Lightning loaded successfully');
+      }
       return d;
     })();
 
-    // Safety timeout (10 seconds for initial shader compilation on slow devices)
+    // Background attachment so MoveNet takes over whenever loading completes
+    loadPromise.then((d) => {
+      if (d) {
+        detector = d;
+        console.log('[PoseEngine] MoveNet attached and active');
+      }
+    }).catch(() => {});
+
+    // Safety timeout (30 seconds for shader compilation on mobile WebViews)
     const timeoutPromise = new Promise<null>((resolve) => {
       setTimeout(() => {
-        console.warn('[PoseEngine] MoveNet load timed out (10s) — enabling offline tracker');
-        this.forceOffline = true;
+        if (!detector) {
+          console.warn('[PoseEngine] MoveNet taking >30s — using offline tracker while MoveNet prepares in background');
+        }
         resolve(null);
-      }, 10000);
+      }, 30000);
     });
 
     loading = Promise.race([loadPromise, timeoutPromise]).catch((err) => {
       console.warn('[PoseEngine] MoveNet failed to load:', err);
-      loading = null; // Reset so retry is possible
-      this.forceOffline = true;
+      loading = null;
       return null;
     }) as Promise<any>;
 
@@ -414,17 +436,16 @@ export class PoseDetectionEngine {
   static async detectPose(video: HTMLVideoElement): Promise<PoseResult | null> {
     if (!video || video.readyState < 2) return null;
 
-    if (detector && !this.forceOffline) {
+    if (detector) {
       try {
         const result = await this.detectWithMoveNet(video);
         if (result) return result;
       } catch (err) {
-        console.warn('[PoseEngine] MoveNet detection error, switching to OfflineTorsoTracker:', err);
-        this.forceOffline = true;
+        // Log frame issue and gracefully fall through to optical tracker for this frame
       }
     }
 
-    // 100% offline optical torso tracking
+    // Fallback optical torso tracking
     return OfflineTorsoTracker.track(video);
   }
 

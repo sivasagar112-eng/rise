@@ -1,7 +1,7 @@
 class WebAudioSynth {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private isPlaying: boolean = false;
+  public isPlaying: boolean = false;
   private intervalId: number | null = null;
   private startTime: number = 0;
   private rampDurationSeconds: number = 30;

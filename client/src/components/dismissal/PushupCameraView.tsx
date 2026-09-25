@@ -14,7 +14,7 @@ type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 
 // Pushup Movement Thresholds
 const MIN_DROP_PX = 32;            // Minimum vertical displacement (pixels) required for shoulder/chest
 const REP_COOLDOWN_MS = 700;       // Minimum time between reps
-const MIN_REP_DURATION_MS = 600;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
+const MIN_REP_DURATION_MS = 400;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
 const EMA_ALPHA = 0.75;            // High-reactivity smoothing (eliminates frame-to-frame lag)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
@@ -36,6 +36,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const repStartMsRef = useRef<number>(0);
   const maxDropSeenRef = useRef<number>(0);
   const minElbowAngleSeenRef = useRef<number>(180);
+  const uprightStreakRef = useRef<number>(0);
 
   // Baselines for the UP position (starting height)
   const baseShoulderYRef = useRef<number | null>(null);
@@ -232,9 +233,15 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 result.isHorizontal
               );
 
-              // POSTURE ENFORCEMENT: Pushups require plank position!
-              // If user is standing or sitting upright, reject and prompt to plank.
+              // POSTURE ENFORCEMENT: Debounced upright check so a single noisy frame never cancels an active rep
               if (result.isUpright) {
+                uprightStreakRef.current += 1;
+              } else {
+                uprightStreakRef.current = 0;
+              }
+
+              const isMidRep = phaseRef.current === 'GOING_DOWN' || phaseRef.current === 'DOWN' || phaseRef.current === 'GOING_UP';
+              if (result.isUpright && uprightStreakRef.current >= 8 && !isMidRep) {
                 setHudData((prev) => ({
                   ...prev,
                   tracking: true,
@@ -280,9 +287,9 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cY = smoothCYRef.current;
               const hY = smoothHYRef.current;
 
-              // Dynamic minimum movement distance based on video resolution (at least 32px)
+              // Realistic minimum movement distance based on video resolution (20px - 32px)
               const vHeight = video.videoHeight || 480;
-              const dynamicMinDrop = Math.max(MIN_DROP_PX, Math.round(vHeight * 0.08));
+              const dynamicMinDrop = Math.max(20, Math.min(32, Math.round(vHeight * 0.05)));
 
               // Establish or smoothly maintain baseline at UP position
               if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
@@ -327,14 +334,15 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const now = performance.now();
               const curElbowAngle = result.avgElbowAngle ?? null;
 
-              // Rigorous Pushup State Cycle with Angle + Displacement Verification:
+              // Robust Pushup State Cycle with Angle + Displacement Verification:
               // UP -> GOING_DOWN -> DOWN -> GOING_UP -> UP (Rep counted!)
               if (phaseRef.current === 'UP') {
-                if (sDrop >= 20) {
+                const isStartingDescent = sDrop >= 14 || (curElbowAngle !== null && curElbowAngle <= 135);
+                if (isStartingDescent) {
                   phaseRef.current = 'GOING_DOWN';
                   phaseStartMsRef.current = now;
                   repStartMsRef.current = now;
-                  maxDropSeenRef.current = sDrop;
+                  maxDropSeenRef.current = Math.max(sDrop, 14);
                   minElbowAngleSeenRef.current = curElbowAngle ?? 180;
                   setPhase('GOING_DOWN');
                   setGuidance('Lowering down... bend elbows!');
@@ -346,19 +354,24 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 }
 
                 // DOWN requirement:
-                // 1) Vertical drop >= dynamicMinDrop (≥32px)
-                // 2) If elbow angle available, elbow must bend to <= 120° (or either elbow <= 120°)
-                const hasValidElbowBend = curElbowAngle === null ||
-                  curElbowAngle <= 120 ||
-                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 120) ||
-                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 120);
+                // Either elbows bent deeply (<= 115°), OR decent drop (>= dynamicMinDrop) with valid bend
+                const hasDeepElbowBend = (curElbowAngle !== null && curElbowAngle <= 115) ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 115) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 115);
 
-                if (sDrop >= dynamicMinDrop && hasValidElbowBend) {
+                const hasModerateBend = curElbowAngle === null ||
+                  curElbowAngle <= 125 ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 125) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 125);
+
+                const reachedBottom = hasDeepElbowBend || (sDrop >= dynamicMinDrop && hasModerateBend) || (sDrop >= dynamicMinDrop * 1.3);
+
+                if (reachedBottom) {
                   phaseRef.current = 'DOWN';
                   phaseStartMsRef.current = now;
                   setPhase('DOWN');
                   setGuidance('Bottom reached! Now push back UP!');
-                } else if (sDrop < 8 && maxDropSeenRef.current < dynamicMinDrop) {
+                } else if (sDrop < 6 && maxDropSeenRef.current < dynamicMinDrop && (now - phaseStartMsRef.current > 2500)) {
                   phaseRef.current = 'UP';
                   setPhase('UP');
                   setGuidance('Lower your chest all the way down.');
@@ -367,24 +380,27 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 if (curElbowAngle !== null) {
                   minElbowAngleSeenRef.current = Math.min(minElbowAngleSeenRef.current, curElbowAngle);
                 }
-                if (sDrop < maxDropSeenRef.current - 8) {
+                const isPushingUp = (sDrop < maxDropSeenRef.current - 6) ||
+                  (curElbowAngle !== null && curElbowAngle >= minElbowAngleSeenRef.current + 15);
+
+                if (isPushingUp) {
                   phaseRef.current = 'GOING_UP';
                   phaseStartMsRef.current = now;
                   setPhase('GOING_UP');
                   setGuidance('Pushing up — extend arms to top!');
                 }
               } else if (phaseRef.current === 'GOING_UP') {
-                const returnedUp = sDrop <= Math.max(16, maxDropSeenRef.current * 0.40);
+                const returnedUp = sDrop <= Math.max(12, maxDropSeenRef.current * 0.40);
                 const repDuration = now - repStartMsRef.current;
 
                 // UP return requirement:
                 // 1) Returned close to baseline height
-                // 2) Arm extended: if elbow angle available, must reach >= 140°
-                // 3) Duration must be realistic (>= 600ms) to reject quick hand twitches
+                // 2) Arm extended: if elbow angle available, must reach >= 135°
+                // 3) Duration must be realistic (>= 400ms) to reject quick hand twitches
                 const hasArmsExtended = curElbowAngle === null ||
-                  curElbowAngle >= 140 ||
-                  (result.leftElbowAngle !== null && result.leftElbowAngle >= 140) ||
-                  (result.rightElbowAngle !== null && result.rightElbowAngle >= 140);
+                  curElbowAngle >= 135 ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle >= 135) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle >= 135);
 
                 if (returnedUp && hasArmsExtended && repDuration >= MIN_REP_DURATION_MS) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
@@ -635,7 +651,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               ? 'LOWER CHEST & BEND ELBOWS'
               : phase === 'GOING_UP'
               ? 'EXTEND ARMS TO TOP'
-              : 'PLANK POSITION &bull; BEND ELBOWS'}
+              : 'PLANK POSITION • BEND ELBOWS'}
           </div>
         </div>
 
@@ -682,7 +698,7 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
       </div>
 
       {/* Rep Count Display */}
-      <div className="flex items-baseline justify-center space-x-2 mb-3">
+      <div className="flex items-baseline justify-center space-x-2 mb-2">
         <span className="text-6xl font-bold tracking-tight text-theme-text font-tabular">
           {reps}
         </span>
@@ -691,6 +707,15 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
           Reps
         </span>
       </div>
+
+      {/* Manual fallback button if camera angle or lighting prevents recognition */}
+      <button
+        type="button"
+        onClick={handleManualRep}
+        className="text-[11px] text-theme-subtext hover:text-theme-text active:scale-95 px-3 py-1.5 rounded-lg border border-theme-border/60 bg-theme-card/70 transition-all font-medium mb-1 cursor-pointer"
+      >
+        Having trouble? Tap to count +1 rep manually
+      </button>
     </div>
   );
 };
