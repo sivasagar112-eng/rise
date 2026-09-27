@@ -20,6 +20,8 @@ client/android/app/*.iml
 client/android/captures/
 client/android/.externalNativeBuild/
 client/android/.cxx/
+client/android/app/google-services.json
+**/google-services.json
 
 # APK binaries
 *.apk
@@ -44,3 +46,5 @@ Thumbs.db
 *.db-journal
 *.sqlite
 *.sqlite3
+
+.vscode/

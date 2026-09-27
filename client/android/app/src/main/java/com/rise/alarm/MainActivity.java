@@ -31,8 +31,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Register the custom AlarmScheduler plugin BEFORE super.onCreate()
+        // Register custom plugins BEFORE super.onCreate()
         registerPlugin(AlarmSchedulerPlugin.class);
+        registerPlugin(GoogleAuthPlugin.class);
 
         super.onCreate(savedInstanceState);
 
