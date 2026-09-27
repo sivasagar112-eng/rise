@@ -11,6 +11,8 @@ export interface GoogleAuthPluginInterface {
   signIn(): Promise<GoogleUser>;
   signOut(): Promise<void>;
   getCurrentUser(): Promise<Partial<GoogleUser>>;
+  signInWithEmail(options: { email: string; password: string }): Promise<GoogleUser>;
+  signUpWithEmail(options: { email: string; password: string }): Promise<GoogleUser>;
 }
 
 export const GoogleAuthPlugin = registerPlugin<GoogleAuthPluginInterface>('GoogleAuth');
@@ -25,6 +27,20 @@ export class GoogleAuthService {
       throw new Error('Google Sign-In via Credential Manager is available on Android devices.');
     }
     return await GoogleAuthPlugin.signIn();
+  }
+
+  static async signInWithEmail(email: string, password: string): Promise<GoogleUser> {
+    if (!this.isAvailable()) {
+      throw new Error('Native authentication is available on Android devices.');
+    }
+    return await GoogleAuthPlugin.signInWithEmail({ email, password });
+  }
+
+  static async signUpWithEmail(email: string, password: string): Promise<GoogleUser> {
+    if (!this.isAvailable()) {
+      throw new Error('Native authentication is available on Android devices.');
+    }
+    return await GoogleAuthPlugin.signUpWithEmail({ email, password });
   }
 
   static async signOut(): Promise<void> {

@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @CapacitorPlugin(name = "GoogleAuth")
 class GoogleAuthPlugin : Plugin() {
@@ -35,6 +36,64 @@ class GoogleAuthPlugin : Plugin() {
                 }
             } catch (e: Exception) {
                 call.reject(e.message ?: "Sign in failed with exception", e)
+            }
+        }
+    }
+
+    @PluginMethod
+    fun signInWithEmail(call: PluginCall) {
+        val email = call.getString("email")
+        val password = call.getString("password")
+        if (email.isNullOrEmpty() || password.isNullOrEmpty()) {
+            call.reject("Email and password are required")
+            return
+        }
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val authResult = FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password).await()
+                val user = authResult.user
+                if (user != null) {
+                    val ret = JSObject()
+                    ret.put("uid", user.uid)
+                    ret.put("email", user.email ?: "")
+                    ret.put("displayName", user.displayName ?: "")
+                    ret.put("photoUrl", user.photoUrl?.toString() ?: "")
+                    call.resolve(ret)
+                } else {
+                    call.reject("User is null after sign in")
+                }
+            } catch (e: Exception) {
+                call.reject(e.message ?: "Sign in failed", e)
+            }
+        }
+    }
+
+    @PluginMethod
+    fun signUpWithEmail(call: PluginCall) {
+        val email = call.getString("email")
+        val password = call.getString("password")
+        if (email.isNullOrEmpty() || password.isNullOrEmpty()) {
+            call.reject("Email and password are required")
+            return
+        }
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val authResult = FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password).await()
+                val user = authResult.user
+                if (user != null) {
+                    val ret = JSObject()
+                    ret.put("uid", user.uid)
+                    ret.put("email", user.email ?: "")
+                    ret.put("displayName", user.displayName ?: "")
+                    ret.put("photoUrl", user.photoUrl?.toString() ?: "")
+                    call.resolve(ret)
+                } else {
+                    call.reject("User is null after registration")
+                }
+            } catch (e: Exception) {
+                call.reject(e.message ?: "Sign up failed", e)
             }
         }
     }

@@ -104,16 +104,34 @@ export const ProfileScreen: React.FC = () => {
     setAuthLoading(true);
 
     try {
-      if (authMode === 'REGISTER') {
-        const res = await api.register(email, password);
-        const profile = { id: res.user.id, email: res.user.email, token: res.token };
-        StorageService.saveUser(profile);
-        setUser(profile);
+      if (GoogleAuthService.isAvailable()) {
+        let authResult;
+        if (authMode === 'REGISTER') {
+          authResult = await GoogleAuthService.signUpWithEmail(email, password);
+        } else {
+          authResult = await GoogleAuthService.signInWithEmail(email, password);
+        }
+        const profile = {
+          id: authResult.uid,
+          email: authResult.email || email,
+          name: authResult.displayName || email.split('@')[0],
+          photoUrl: authResult.photoUrl || '',
+          token: 'firebase-' + authResult.uid,
+        };
+        StorageService.saveUser(profile as any);
+        setUser(profile as any);
       } else {
-        const res = await api.login(email, password);
-        const profile = { id: res.user.id, email: res.user.email, token: res.token };
-        StorageService.saveUser(profile);
-        setUser(profile);
+        if (authMode === 'REGISTER') {
+          const res = await api.register(email, password);
+          const profile = { id: res.user.id, email: res.user.email, token: res.token };
+          StorageService.saveUser(profile);
+          setUser(profile);
+        } else {
+          const res = await api.login(email, password);
+          const profile = { id: res.user.id, email: res.user.email, token: res.token };
+          StorageService.saveUser(profile);
+          setUser(profile);
+        }
       }
       setEmail('');
       setPassword('');
