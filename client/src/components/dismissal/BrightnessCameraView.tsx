@@ -52,14 +52,16 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
           const { data } = ctx.getImageData(0, 0, W, H);
           let totalLum = 0;
           let sampledCount = 0;
-          let centerLum = 0;
+          let centerBrightCount = 0;
           let centerCount = 0;
           let brightPixelCount = 0;
+          let veryBrightPixelCount = 0;
 
-          const cxMin = Math.round(W * 0.25);
-          const cxMax = Math.round(W * 0.75);
-          const cyMin = Math.round(H * 0.20);
-          const cyMax = Math.round(H * 0.80);
+          // Center hotspot region (inner 40% of frame)
+          const cxMin = Math.round(W * 0.30);
+          const cxMax = Math.round(W * 0.70);
+          const cyMin = Math.round(H * 0.25);
+          const cyMax = Math.round(H * 0.75);
 
           for (let y = 0; y < H; y += 2) {
             for (let x = 0; x < W; x += 2) {
@@ -69,28 +71,37 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
               sampledCount++;
 
               if (x >= cxMin && x <= cxMax && y >= cyMin && y <= cyMax) {
-                centerLum += lum;
                 centerCount++;
+                if (lum >= 200) centerBrightCount++;
               }
 
-              if (lum >= 200) {
-                brightPixelCount++;
-              }
+              if (lum >= 200) brightPixelCount++;
+              if (lum >= 235) veryBrightPixelCount++;
             }
           }
 
           const avgLum = Math.round(totalLum / (sampledCount || 1));
-          const avgCenterLum = Math.round(centerLum / (centerCount || 1));
           const brightPercent = Math.round((brightPixelCount / (sampledCount || 1)) * 100);
+          const veryBrightPercent = Math.round((veryBrightPixelCount / (sampledCount || 1)) * 100);
+          const centerBrightPercent = Math.round((centerBrightCount / (centerCount || 1)) * 100);
 
           const now = performance.now();
           const delta = Math.min(200, now - lastTsRef.current);
           lastTsRef.current = now;
 
-          // STRICT BRIGHT LIGHT DETECTION:
-          // Must point directly at a genuinely bright light source (ceiling lamp, tube light, bright bulb).
-          // Rejects low-light or moderate ambient lighting:
-          const isBrightLight = (avgLum >= 165) || (avgCenterLum >= 205 && avgLum >= 130 && brightPercent >= 18);
+          // BRIGHT LIGHT SOURCE DETECTION:
+          // Detects a genuine bright light source (bulb, lamp, tube light) even when the
+          // rest of the frame is dark. Uses hotspot detection rather than whole-frame average.
+          //
+          // Condition 1: Center of frame has a bright hotspot (>= 25% of center pixels are very bright)
+          // Condition 2: Significant portion of frame is saturated bright (>= 8% pixels at 200+)
+          // Condition 3: Overall frame is quite bright (high average luminance, e.g. well-lit room)
+          // Condition 4: Strong saturation cluster (>= 5% of all pixels are near-white 235+)
+          const isBrightLight =
+            (centerBrightPercent >= 25) ||
+            (brightPercent >= 8 && avgLum >= 60) ||
+            (avgLum >= 140) ||
+            (veryBrightPercent >= 5);
 
           sustainedMsRef.current = isBrightLight
             ? sustainedMsRef.current + delta
@@ -271,9 +282,9 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
               <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 px-2 rounded-lg">
                 {brightnessProgress > 0
                   ? '☀️ Bright Light Detected — Hold Steady!'
-                  : brightnessValue < 125
+                  : brightnessValue < 40
                   ? 'Too Dim — Aim directly at light bulb'
-                  : 'Searching for bright light bulb...'}
+                  : 'Searching for bright light source...'}
               </div>
             </div>
 
