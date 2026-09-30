@@ -14,10 +14,13 @@ interface PushupCameraViewProps {
 type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
 // Pushup Movement Thresholds
-const MIN_DROP_PX = 24;            // Calibrated vertical displacement (pixels) required for shoulder/chest
-const REP_COOLDOWN_MS = 650;       // Minimum time between reps
-const MIN_REP_DURATION_MS = 350;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
-const EMA_ALPHA = 0.80;            // High-reactivity smoothing (eliminates frame-to-frame lag)
+const MIN_DROP_PX = 28;            // Minimum vertical displacement (pixels) required — increased to prevent phone wobble
+const REP_COOLDOWN_MS = 800;       // Minimum time between reps — prevents rapid shaking
+const MIN_REP_DURATION_MS = 600;   // Minimum duration of full down-and-up cycle — real pushups take at least 0.6s
+const EMA_ALPHA = 0.70;            // Smoothing factor — slightly lower to filter phone shake noise
+const MIN_BODY_CONFIDENCE = 0.35;  // Minimum average confidence of shoulder+hip keypoints
+const MIN_BODY_SPAN_RATIO = 0.12;  // Body must span at least 12% of frame height (shoulder-to-hip)
+const STABILITY_THRESHOLD = 40;    // Max allowed per-frame keypoint jump (pixels) — rejects phone shaking
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,
@@ -49,6 +52,10 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const smoothSYRef = useRef<number | null>(null);
   const smoothCYRef = useRef<number | null>(null);
   const smoothHYRef = useRef<number | null>(null);
+
+  // Anti-cheat: stability tracking
+  const prevRawSYRef = useRef<number | null>(null);       // Previous frame's raw shoulder Y
+  const validBodyFramesRef = useRef<number>(0);            // Consecutive frames with valid body detection
 
   // UI State
   const isNative = Capacitor.isNativePlatform();
@@ -247,6 +254,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
     smoothHYRef.current = null;
     maxDropSeenRef.current = 0;
     minElbowAngleSeenRef.current = 180;
+    prevRawSYRef.current = null;
+    validBodyFramesRef.current = 0;
 
     const processFrame = async () => {
       if (!mountedRef.current || completedRef.current || !isCurrentEffect) return;
@@ -312,29 +321,72 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 return;
               }
 
-              const upperBody =
-                result.shoulder ||
-                result.chest ||
-                (result.keypoints &&
-                  result.keypoints.find(
-                    (k) =>
-                      (k.name === 'nose' || k.name === 'left_shoulder' || k.name === 'right_shoulder') &&
-                      (k.score ?? 0) > 0.25
-                  ));
+              // ── ANTI-CHEAT BODY VALIDATION ──
+              // Require REAL body landmarks, not just any motion/displacement.
+              // Phone-shaking creates displacement but won't produce stable, confident body keypoints.
 
-              const hasBodyPoints = Boolean(upperBody);
+              const hasMoveNetBody = !result.isOffline;
+              const shoulderKp = result.shoulder;
+              const hipKp = result.hip;
 
-              if (!hasBodyPoints) {
+              // Gate 1: Must have real shoulder AND hip keypoints with decent confidence
+              const hasValidBody = Boolean(
+                shoulderKp && hipKp &&
+                result.hasShoulder && result.hasHip &&
+                result.confidence >= MIN_BODY_CONFIDENCE
+              );
+
+              if (!hasValidBody) {
+                validBodyFramesRef.current = 0;
                 setHudData((prev) => ({ ...prev, tracking: false, isPlank: false }));
+                // If mid-rep and body disappears for more than a moment, reset
+                if (phaseRef.current === 'GOING_DOWN' || phaseRef.current === 'DOWN' || phaseRef.current === 'GOING_UP') {
+                  if (performance.now() - phaseStartMsRef.current > 3000) {
+                    phaseRef.current = 'WAITING_FOR_BODY';
+                    setPhase('WAITING_FOR_BODY');
+                    setGuidance('Body lost — get back into plank position');
+                  }
+                }
                 return;
               }
 
-              // Extract Y-axis positions (pixels from top of image) and apply EMA smoothing
-              const rawSY = upperBody!.y;
-              const rawCY = result.chest ? result.chest.y : rawSY + 20;
-              const rawHY = result.hip ? result.hip.y : rawCY + 30;
+              // Gate 2: Body must span a meaningful portion of the frame (shoulder-to-hip distance)
+              const vHeight = video.videoHeight || 480;
+              const bodySpan = Math.abs(hipKp!.y - shoulderKp!.y);
+              if (bodySpan < vHeight * MIN_BODY_SPAN_RATIO) {
+                validBodyFramesRef.current = 0;
+                setHudData((prev) => ({ ...prev, tracking: true, isPlank: false }));
+                setGuidance('Move closer — body too small in frame');
+                return;
+              }
 
-              // EMA smoothing (0.75) for fast response without frame lag
+              // Gate 3: Stability check — reject if keypoints jump wildly between frames
+              // Phone shaking causes ALL keypoints to shift uniformly and rapidly.
+              const rawSY = shoulderKp!.y;
+              if (prevRawSYRef.current !== null) {
+                const frameJump = Math.abs(rawSY - prevRawSYRef.current);
+                if (frameJump > STABILITY_THRESHOLD) {
+                  prevRawSYRef.current = rawSY;
+                  validBodyFramesRef.current = 0;
+                  setHudData((prev) => ({ ...prev, tracking: true, isPlank: false }));
+                  setGuidance('Hold phone steady — too much shaking');
+                  return;
+                }
+              }
+              prevRawSYRef.current = rawSY;
+
+              // Gate 4: Need several consecutive valid body frames before tracking begins
+              validBodyFramesRef.current++;
+              if (validBodyFramesRef.current < 5) {
+                setHudData((prev) => ({ ...prev, tracking: true, isPlank: false }));
+                setGuidance('Detecting body... hold still');
+                return;
+              }
+
+              // Extract Y-axis positions and apply EMA smoothing
+              const rawCY = result.chest ? result.chest.y : rawSY + 20;
+              const rawHY = hipKp!.y;
+
               smoothSYRef.current = smoothSYRef.current === null ? rawSY : smoothSYRef.current * (1 - EMA_ALPHA) + rawSY * EMA_ALPHA;
               smoothCYRef.current = smoothCYRef.current === null ? rawCY : smoothCYRef.current * (1 - EMA_ALPHA) + rawCY * EMA_ALPHA;
               smoothHYRef.current = smoothHYRef.current === null ? rawHY : smoothHYRef.current * (1 - EMA_ALPHA) + rawHY * EMA_ALPHA;
@@ -343,9 +395,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cY = smoothCYRef.current;
               const hY = smoothHYRef.current;
 
-              // Realistic minimum movement distance based on video resolution (20px - 32px)
-              const vHeight = video.videoHeight || 480;
-              const dynamicMinDrop = Math.max(20, Math.min(32, Math.round(vHeight * 0.05)));
+              // Dynamic minimum drop based on video resolution (24-36px)
+              const dynamicMinDrop = Math.max(24, Math.min(36, Math.round(vHeight * 0.06)));
 
               // Establish or smoothly maintain baseline at UP position
               if (baseShoulderYRef.current === null || baseChestYRef.current === null || baseHipYRef.current === null) {
@@ -372,6 +423,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const cDrop = cY - (baseChestYRef.current ?? cY);
               const hDrop = hY - (baseHipYRef.current ?? hY);
 
+              // Anti-cheat: if shoulder and hip move almost identically, it's likely camera movement not body
+              // During a real pushup, shoulder drops MORE than hip (torso pivots at feet).
+              // Phone shaking moves everything equally.
+              const shoulderHipDiffDrop = Math.abs(sDrop - hDrop);
+
               // Update real-time HUD
               setHudData({
                 tracking: true,
@@ -390,15 +446,24 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
               const now = performance.now();
               const curElbowAngle = result.avgElbowAngle ?? null;
 
-              // Robust Pushup State Cycle with Angle + Displacement Verification:
+              // ── STRICT Pushup State Machine ──
               // UP -> GOING_DOWN -> DOWN -> GOING_UP -> UP (Rep counted!)
+              //
+              // KEY ANTI-CHEAT RULES:
+              // 1. Elbow angle MUST be available and show bending for DOWN phase
+              // 2. Shoulder must drop MORE than hip (differential movement, not uniform camera shake)
+              // 3. Duration must be realistic (>= 600ms for full rep)
+
               if (phaseRef.current === 'UP') {
-                const isStartingDescent = sDrop >= 14 || (curElbowAngle !== null && curElbowAngle <= 135);
+                // Start descent: need elbow bend starting OR significant shoulder drop with differential
+                const hasBendStart = curElbowAngle !== null && curElbowAngle <= 140;
+                const hasDropStart = sDrop >= 16 && shoulderHipDiffDrop >= 4;
+                const isStartingDescent = hasBendStart || hasDropStart;
                 if (isStartingDescent) {
                   phaseRef.current = 'GOING_DOWN';
                   phaseStartMsRef.current = now;
                   repStartMsRef.current = now;
-                  maxDropSeenRef.current = Math.max(sDrop, 14);
+                  maxDropSeenRef.current = Math.max(sDrop, 16);
                   minElbowAngleSeenRef.current = curElbowAngle ?? 180;
                   setPhase('GOING_DOWN');
                   setGuidance('Lowering down... bend elbows!');
@@ -409,18 +474,20 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   minElbowAngleSeenRef.current = Math.min(minElbowAngleSeenRef.current, curElbowAngle);
                 }
 
-                // DOWN requirement:
-                // Either elbows bent deeply (<= 115°), OR decent drop (>= dynamicMinDrop) with valid bend
-                const hasDeepElbowBend = (curElbowAngle !== null && curElbowAngle <= 115) ||
-                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 115) ||
-                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 115);
+                // DOWN requirement — STRICT:
+                // Must have elbow angle available AND bent <= 120°, OR
+                // Must have large displacement WITH differential shoulder-vs-hip movement
+                const hasElbowBend = (curElbowAngle !== null && curElbowAngle <= 120) ||
+                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 120) ||
+                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 120) ||
+                  (minElbowAngleSeenRef.current <= 120);
 
-                const hasModerateBend = curElbowAngle === null ||
-                  curElbowAngle <= 125 ||
-                  (result.leftElbowAngle !== null && result.leftElbowAngle <= 125) ||
-                  (result.rightElbowAngle !== null && result.rightElbowAngle <= 125);
+                const hasSignificantDrop = sDrop >= dynamicMinDrop && shoulderHipDiffDrop >= 3;
 
-                const reachedBottom = hasDeepElbowBend || (sDrop >= dynamicMinDrop && hasModerateBend) || (sDrop >= dynamicMinDrop * 1.3);
+                // If using MoveNet (not offline), REQUIRE elbow bend verification
+                const reachedBottom = hasMoveNetBody
+                  ? (hasElbowBend && sDrop >= dynamicMinDrop * 0.7) || (hasSignificantDrop && hasElbowBend)
+                  : (sDrop >= dynamicMinDrop * 1.5); // Offline: need much larger drop since no elbow data
 
                 if (reachedBottom) {
                   phaseRef.current = 'DOWN';
@@ -436,8 +503,8 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                 if (curElbowAngle !== null) {
                   minElbowAngleSeenRef.current = Math.min(minElbowAngleSeenRef.current, curElbowAngle);
                 }
-                const isPushingUp = (sDrop < maxDropSeenRef.current - 6) ||
-                  (curElbowAngle !== null && curElbowAngle >= minElbowAngleSeenRef.current + 15);
+                const isPushingUp = (sDrop < maxDropSeenRef.current - 8) ||
+                  (curElbowAngle !== null && curElbowAngle >= minElbowAngleSeenRef.current + 20);
 
                 if (isPushingUp) {
                   phaseRef.current = 'GOING_UP';
@@ -446,19 +513,23 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   setGuidance('Pushing up — extend arms to top!');
                 }
               } else if (phaseRef.current === 'GOING_UP') {
-                const returnedUp = sDrop <= Math.max(12, maxDropSeenRef.current * 0.40);
+                const returnedUp = sDrop <= Math.max(10, maxDropSeenRef.current * 0.35);
                 const repDuration = now - repStartMsRef.current;
 
-                // UP return requirement:
+                // UP return requirements — STRICT:
                 // 1) Returned close to baseline height
-                // 2) Arm extended: if elbow angle available, must reach >= 135°
-                // 3) Duration must be realistic (>= 400ms) to reject quick hand twitches
-                const hasArmsExtended = curElbowAngle === null ||
-                  curElbowAngle >= 135 ||
-                  (result.leftElbowAngle !== null && result.leftElbowAngle >= 135) ||
-                  (result.rightElbowAngle !== null && result.rightElbowAngle >= 135);
+                // 2) If elbow angles available: must show extension >= 140°
+                // 3) Duration >= MIN_REP_DURATION_MS (600ms)
+                // 4) Minimum elbow angle seen during rep must have been <= 125° (actual bend happened)
+                const hasArmsExtended = hasMoveNetBody
+                  ? (curElbowAngle !== null && curElbowAngle >= 140) ||
+                    (result.leftElbowAngle !== null && result.leftElbowAngle >= 140) ||
+                    (result.rightElbowAngle !== null && result.rightElbowAngle >= 140)
+                  : true; // Offline: can't verify arms
 
-                if (returnedUp && hasArmsExtended && repDuration >= MIN_REP_DURATION_MS) {
+                const hadRealBend = minElbowAngleSeenRef.current <= 125 || !hasMoveNetBody;
+
+                if (returnedUp && hasArmsExtended && hadRealBend && repDuration >= MIN_REP_DURATION_MS) {
                   if (now - lastRepMsRef.current >= REP_COOLDOWN_MS) {
                     lastRepMsRef.current = now;
                     baseShoulderYRef.current = sY;
