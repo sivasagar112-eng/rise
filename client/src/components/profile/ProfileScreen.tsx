@@ -324,8 +324,8 @@ export const ProfileScreen: React.FC = () => {
 
         <div className="flex items-center justify-between py-1">
           <div>
-            <div className="text-theme-text text-sm font-semibold">Chime Synthesizer</div>
-            <div className="text-xs text-theme-subtext">Web Audio gradual volume ramp</div>
+            <div className="text-theme-text text-sm font-semibold">Rise Alarm Sound</div>
+            <div className="text-xs text-theme-subtext">Continuous wake-up audio test</div>
           </div>
           <button
             onClick={handleTestAudio}

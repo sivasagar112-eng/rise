@@ -35,71 +35,48 @@ class WebAudioSynth {
     this.rampDurationSeconds = Math.max(5, rampDurationSec);
     this.isPlaying = true;
 
-    // Check for user-selected or default smooth rise_alarm.wav audio file
+    // Use the provided alarm audio file
     const custom = localStorage.getItem('rise_custom_ringtone_url');
-    const audioUrl = custom || '/rise_alarm.wav';
+    const audioUrl = custom || '/rise_alarm.mp3';
     this.customRingtoneUrl = audioUrl;
 
     try {
       this.customAudio = new Audio(audioUrl);
       this.customAudio.loop = true;
-      this.customAudio.volume = 0.05;
+      this.customAudio.volume = 0.1;
 
-      const playPromise = this.customAudio.play();
-      if (playPromise) {
-        playPromise.catch((e) => {
-          console.warn('[WebAudioSynth] Audio element playback deferred/failed:', e);
-          this.fallbackSmoothSynthesizer();
-        });
-      }
+      const playAudio = () => {
+        if (!this.customAudio || !this.isPlaying) return;
+        const playPromise = this.customAudio.play();
+        if (playPromise) {
+          playPromise.catch((e) => {
+            console.warn('[WebAudioSynth] Audio playback deferred by browser policy, will retry on click/touch:', e);
+            const retryHandler = () => {
+              if (this.customAudio && this.isPlaying) {
+                this.customAudio.play().catch(() => {});
+              }
+              window.removeEventListener('click', retryHandler);
+              window.removeEventListener('touchstart', retryHandler);
+            };
+            window.addEventListener('click', retryHandler, { once: true });
+            window.addEventListener('touchstart', retryHandler, { once: true });
+          });
+        }
+      };
 
-      // Smooth volume ramp
+      playAudio();
+
+      // Smooth volume ramp over rampDurationSeconds
       this.startTime = performance.now();
       this.intervalId = window.setInterval(() => {
         if (!this.customAudio || !this.isPlaying) return;
         const elapsed = (performance.now() - this.startTime) / 1000;
         const progress = Math.min(1, elapsed / this.rampDurationSeconds);
-        this.customAudio.volume = Math.min(1, 0.05 + progress * 0.95);
+        this.customAudio.volume = Math.min(1, 0.1 + progress * 0.9);
       }, 200);
-    } catch {
-      this.fallbackSmoothSynthesizer();
+    } catch (e) {
+      console.error('[WebAudioSynth] Failed to initialize audio:', e);
     }
-  }
-
-  // Fallback purely synthesized smooth ambient morning chord (pure sine, zero harshness)
-  private fallbackSmoothSynthesizer(): void {
-    if (!this.isPlaying) return;
-    const ctx = this.initContext();
-    this.startTime = ctx.currentTime;
-
-    this.masterGain = ctx.createGain();
-    this.masterGain.gain.setValueAtTime(0.03, ctx.currentTime);
-    this.masterGain.gain.linearRampToValueAtTime(0.8, ctx.currentTime + this.rampDurationSeconds);
-    this.masterGain.connect(ctx.destination);
-
-    const playSmoothChord = () => {
-      if (!this.isPlaying || !this.ctx || !this.masterGain) return;
-      const now = this.ctx.currentTime;
-      // Warm A-major chord: A3 (220Hz), C#4 (277Hz), E4 (330Hz), A4 (440Hz)
-      const freqs = [220.0, 277.18, 329.63, 440.0];
-      freqs.forEach((f, i) => {
-        if (!this.ctx || !this.masterGain) return;
-        const osc = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        osc.type = 'sine'; // Pure gentle sine
-        osc.frequency.setValueAtTime(f, now + i * 0.15);
-        g.gain.setValueAtTime(0.001, now + i * 0.15);
-        g.gain.linearRampToValueAtTime(0.2, now + i * 0.15 + 0.2); // Soft attack
-        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 2.5); // Warm decay
-        osc.connect(g);
-        g.connect(this.masterGain);
-        osc.start(now + i * 0.15);
-        osc.stop(now + i * 0.15 + 2.6);
-      });
-    };
-
-    playSmoothChord();
-    this.intervalId = window.setInterval(playSmoothChord, 3500);
   }
 
   // Calculate current volume ramp percentage (0-100%)

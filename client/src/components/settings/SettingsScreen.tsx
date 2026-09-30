@@ -259,9 +259,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Alarm Chime Test */}
           <div className="px-4 py-3 flex items-center justify-between">
             <div>
-              <p className="text-sm font-bold text-theme-text">Alarm Chime</p>
+              <p className="text-sm font-bold text-theme-text">Alarm Sound</p>
               <p className="text-xs text-theme-subtext mt-0.5">
-                {customRingtoneName ? `Custom: ${customRingtoneName}` : 'Synthesized harmonic volume ramp'}
+                {customRingtoneName ? `Custom: ${customRingtoneName}` : 'Rise Alarm Audio (Continuous Loop)'}
               </p>
             </div>
             <button

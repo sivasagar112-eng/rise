@@ -14,10 +14,10 @@ interface PushupCameraViewProps {
 type PushupPhase = 'LOADING_MODEL' | 'WAITING_FOR_BODY' | 'UP' | 'GOING_DOWN' | 'DOWN' | 'GOING_UP' | 'FINISHED';
 
 // Pushup Movement Thresholds
-const MIN_DROP_PX = 32;            // Minimum vertical displacement (pixels) required for shoulder/chest
-const REP_COOLDOWN_MS = 700;       // Minimum time between reps
-const MIN_REP_DURATION_MS = 400;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
-const EMA_ALPHA = 0.75;            // High-reactivity smoothing (eliminates frame-to-frame lag)
+const MIN_DROP_PX = 24;            // Calibrated vertical displacement (pixels) required for shoulder/chest
+const REP_COOLDOWN_MS = 650;       // Minimum time between reps
+const MIN_REP_DURATION_MS = 350;   // Minimum duration of down-and-up movement (prevents twitch/handwave falses)
+const EMA_ALPHA = 0.80;            // High-reactivity smoothing (eliminates frame-to-frame lag)
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   targetReps,

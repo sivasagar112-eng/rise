@@ -60,12 +60,13 @@
             </intent-filter>
         </receiver>
 
-        <!-- Foreground Service: Plays alarm sound natively even when app is killed -->
+        <!-- Foreground Service: Plays alarm sound natively even when app is killed or swiped from recents -->
         <service
             android:name=".AlarmService"
             android:enabled="true"
             android:exported="false"
             android:directBootAware="true"
+            android:stopWithTask="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <provider

@@ -1,5 +1,6 @@
 package com.rise.alarm;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -36,6 +37,22 @@ public class AlarmService extends Service {
     private static final int NOTIFICATION_ID = 999999;
 
     public static volatile boolean isServiceRunning = false;
+    private static volatile boolean isExplicitlyStopped = false;
+
+    private static final String PREF_ACTIVE_ALARM = "rise_active_alarm_state";
+    private static final String KEY_ALARM_ID = "active_alarm_id";
+    private static final String KEY_ALARM_TIME = "active_alarm_time";
+    private static final String KEY_ALARM_LABEL = "active_alarm_label";
+    private static final String KEY_DISMISSAL_TYPE = "active_dismissal_type";
+    private static final String KEY_PUSHUP_TARGET = "active_pushup_target";
+    private static final String KEY_RAMP_DURATION = "active_ramp_duration";
+
+    private String currentAlarmId;
+    private String currentAlarmTime;
+    private String currentAlarmLabel;
+    private String currentDismissalType;
+    private int currentPushupTarget = 5;
+    private int currentRampDuration = 30;
 
     private MediaPlayer mediaPlayer;
     private Vibrator vibrator;
@@ -53,21 +70,65 @@ public class AlarmService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) {
-            isServiceRunning = false;
-            stopSelf();
-            return START_NOT_STICKY;
+        String alarmId = null;
+        String alarmTime = null;
+        String alarmLabel = null;
+        String dismissalType = null;
+        int pushupTarget = 5;
+        int rampDuration = 30;
+
+        if (intent != null) {
+            alarmId = intent.getStringExtra("alarmId");
+            alarmTime = intent.getStringExtra("alarmTime");
+            alarmLabel = intent.getStringExtra("alarmLabel");
+            dismissalType = intent.getStringExtra("dismissalType");
+            pushupTarget = intent.getIntExtra("pushupTarget", 5);
+            rampDuration = intent.getIntExtra("rampDuration", 30);
         }
 
+        // If intent is null (e.g. system restored service via START_STICKY)
+        if (alarmId == null || alarmId.trim().isEmpty()) {
+            android.content.SharedPreferences prefs = getSharedPreferences(PREF_ACTIVE_ALARM, Context.MODE_PRIVATE);
+            alarmId = prefs.getString(KEY_ALARM_ID, null);
+            if (alarmId != null && !isExplicitlyStopped) {
+                alarmTime = prefs.getString(KEY_ALARM_TIME, "07:00");
+                alarmLabel = prefs.getString(KEY_ALARM_LABEL, "Rise Alarm");
+                dismissalType = prefs.getString(KEY_DISMISSAL_TYPE, "PUSHUP_MATH");
+                pushupTarget = prefs.getInt(KEY_PUSHUP_TARGET, 5);
+                rampDuration = prefs.getInt(KEY_RAMP_DURATION, 30);
+                Log.d(TAG, "Restored active alarm from preferences on STICKY restart: " + alarmId);
+            } else {
+                Log.d(TAG, "No active alarm to restore or explicitly stopped. Stopping service.");
+                isServiceRunning = false;
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+        }
+
+        isExplicitlyStopped = false;
         isServiceRunning = true;
 
-        String alarmId = intent.getStringExtra("alarmId");
-        String alarmTime = intent.getStringExtra("alarmTime");
-        String alarmLabel = intent.getStringExtra("alarmLabel");
-        String dismissalType = intent.getStringExtra("dismissalType");
-        int pushupTarget = intent.getIntExtra("pushupTarget", 5);
-        int rampDuration = intent.getIntExtra("rampDuration", 30);
+        currentAlarmId = alarmId;
+        currentAlarmTime = alarmTime;
+        currentAlarmLabel = alarmLabel;
+        currentDismissalType = dismissalType;
+        currentPushupTarget = pushupTarget;
+        currentRampDuration = rampDuration;
         rampDurationMs = rampDuration * 1000;
+
+        // Persist active alarm state in SharedPreferences
+        try {
+            android.content.SharedPreferences.Editor editor = getSharedPreferences(PREF_ACTIVE_ALARM, Context.MODE_PRIVATE).edit();
+            editor.putString(KEY_ALARM_ID, alarmId);
+            editor.putString(KEY_ALARM_TIME, alarmTime);
+            editor.putString(KEY_ALARM_LABEL, alarmLabel);
+            editor.putString(KEY_DISMISSAL_TYPE, dismissalType);
+            editor.putInt(KEY_PUSHUP_TARGET, pushupTarget);
+            editor.putInt(KEY_RAMP_DURATION, rampDuration);
+            editor.apply();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to persist active alarm state", e);
+        }
 
         Log.d(TAG, "AlarmService started for alarm: " + alarmId + " at " + alarmTime);
 
@@ -105,12 +166,6 @@ public class AlarmService extends Service {
         // Build the full-screen intent to launch the app
         Intent launchIntent = new Intent(this, MainActivity.class);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if (alarmId == null || alarmId.trim().isEmpty()) {
-            Log.e(TAG, "AlarmService: alarmId is missing or empty! Stopping service without ringing.");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-
         launchIntent.putExtra("alarmId", alarmId);
         launchIntent.putExtra("alarmTime", alarmTime);
         launchIntent.putExtra("alarmLabel", alarmLabel);
@@ -161,14 +216,14 @@ public class AlarmService extends Service {
         // Start vibration
         startVibration();
 
-        // Launch the app activity safely (fallback in case not already launched by AlarmTriggerHandler)
+        // Launch the app activity safely
         try {
             startActivity(launchIntent);
         } catch (Exception e) {
             Log.d(TAG, "startActivity from AlarmService handled via full-screen intent: " + e.getMessage());
         }
 
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     private void playAlarmSound() {
@@ -303,9 +358,18 @@ public class AlarmService extends Service {
     }
 
     /**
-     * Called from AlarmSchedulerPlugin when the user completes the challenge.
+     * Called from AlarmSchedulerPlugin or PushUpActivity when the user completes the challenge.
      */
     public static void stopAlarmService(Context context) {
+        isExplicitlyStopped = true;
+        isServiceRunning = false;
+
+        try {
+            android.content.SharedPreferences.Editor editor = context.getSharedPreferences(PREF_ACTIVE_ALARM, Context.MODE_PRIVATE).edit();
+            editor.clear();
+            editor.apply();
+        } catch (Exception ignored) {}
+
         try {
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) {
@@ -320,11 +384,96 @@ public class AlarmService extends Service {
     }
 
     @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.d(TAG, "onTaskRemoved: User cut app from recents! Checking if alarm task was completed.");
+
+        // If the alarm has NOT been explicitly stopped by completing the task, keep playing and relaunch app!
+        if (isServiceRunning && !isExplicitlyStopped) {
+            Log.d(TAG, "Alarm task NOT completed yet! Continuing sound playback and bringing task back.");
+
+            // Keep sound going
+            if (mediaPlayer != null) {
+                try {
+                    if (!mediaPlayer.isPlaying()) {
+                        mediaPlayer.start();
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "mediaPlayer restart error in onTaskRemoved", e);
+                }
+            }
+
+            // Immediately relaunch MainActivity so the user cannot bypass the task
+            try {
+                Intent launchIntent = new Intent(getApplicationContext(), MainActivity.class);
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                launchIntent.putExtra("alarmId", currentAlarmId);
+                launchIntent.putExtra("alarmTime", currentAlarmTime);
+                launchIntent.putExtra("alarmLabel", currentAlarmLabel);
+                launchIntent.putExtra("dismissalType", currentDismissalType);
+                launchIntent.putExtra("pushupTarget", currentPushupTarget);
+                launchIntent.putExtra("rampDuration", currentRampDuration);
+                launchIntent.putExtra("fromAlarmService", true);
+
+                PendingIntent pi = PendingIntent.getActivity(
+                    getApplicationContext(),
+                    101,
+                    launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
+
+                AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 300, pi);
+                    } else {
+                        am.setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 300, pi);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to schedule relaunch in onTaskRemoved", e);
+            }
+        }
+    }
+
+    @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.d(TAG, "AlarmService destroyed");
+        Log.d(TAG, "AlarmService onDestroy called. isExplicitlyStopped=" + isExplicitlyStopped + ", isServiceRunning=" + isServiceRunning);
 
-        // Remove foreground notification immediately so it does not stay in notification bar
+        if (!isExplicitlyStopped && isServiceRunning) {
+            Log.w(TAG, "AlarmService was destroyed WITHOUT task completion! Scheduling immediate restart...");
+            try {
+                Intent restartServiceIntent = new Intent(getApplicationContext(), AlarmService.class);
+                restartServiceIntent.putExtra("alarmId", currentAlarmId);
+                restartServiceIntent.putExtra("alarmTime", currentAlarmTime);
+                restartServiceIntent.putExtra("alarmLabel", currentAlarmLabel);
+                restartServiceIntent.putExtra("dismissalType", currentDismissalType);
+                restartServiceIntent.putExtra("pushupTarget", currentPushupTarget);
+                restartServiceIntent.putExtra("rampDuration", currentRampDuration);
+
+                PendingIntent pi = PendingIntent.getForegroundService(
+                    getApplicationContext(),
+                    102,
+                    restartServiceIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
+
+                AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 500, pi);
+                    } else {
+                        am.setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 500, pi);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to schedule service recovery in onDestroy", e);
+            }
+            return;
+        }
+
+        // Clean up foreground notification
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE);

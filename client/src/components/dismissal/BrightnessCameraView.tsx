@@ -13,7 +13,6 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
   const completedRef = useRef(false);
 
   const sustainedMsRef = useRef(0);
-  const baselineRef = useRef<number | null>(null);
   const lastTsRef = useRef(performance.now());
 
   const [brightnessValue, setBrightnessValue] = useState(0);
@@ -51,23 +50,53 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
         if (ctx) {
           ctx.drawImage(video, 0, 0, W, H);
           const { data } = ctx.getImageData(0, 0, W, H);
-          let total = 0;
-          for (let i = 0; i < data.length; i += 16) {
-            total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          let totalLum = 0;
+          let sampledCount = 0;
+          let centerLum = 0;
+          let centerCount = 0;
+          let brightPixelCount = 0;
+
+          const cxMin = Math.round(W * 0.25);
+          const cxMax = Math.round(W * 0.75);
+          const cyMin = Math.round(H * 0.20);
+          const cyMax = Math.round(H * 0.80);
+
+          for (let y = 0; y < H; y += 2) {
+            for (let x = 0; x < W; x += 2) {
+              const idx = (y * W + x) * 4;
+              const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+              totalLum += lum;
+              sampledCount++;
+
+              if (x >= cxMin && x <= cxMax && y >= cyMin && y <= cyMax) {
+                centerLum += lum;
+                centerCount++;
+              }
+
+              if (lum >= 200) {
+                brightPixelCount++;
+              }
+            }
           }
-          const avgLum = Math.round(total / (data.length / 16));
-          if (baselineRef.current === null) baselineRef.current = avgLum;
+
+          const avgLum = Math.round(totalLum / (sampledCount || 1));
+          const avgCenterLum = Math.round(centerLum / (centerCount || 1));
+          const brightPercent = Math.round((brightPixelCount / (sampledCount || 1)) * 100);
 
           const now = performance.now();
           const delta = Math.min(200, now - lastTsRef.current);
           lastTsRef.current = now;
 
-          const isLight = (avgLum - baselineRef.current) >= 24 || avgLum > 110;
-          sustainedMsRef.current = isLight
-            ? sustainedMsRef.current + delta
-            : Math.max(0, sustainedMsRef.current - delta * 0.7);
+          // STRICT BRIGHT LIGHT DETECTION:
+          // Must point directly at a genuinely bright light source (ceiling lamp, tube light, bright bulb).
+          // Rejects low-light or moderate ambient lighting:
+          const isBrightLight = (avgLum >= 165) || (avgCenterLum >= 205 && avgLum >= 130 && brightPercent >= 18);
 
-          const progress = Math.min(100, Math.round((sustainedMsRef.current / 2000) * 100));
+          sustainedMsRef.current = isBrightLight
+            ? sustainedMsRef.current + delta
+            : Math.max(0, sustainedMsRef.current - delta * 1.5);
+
+          const progress = Math.min(100, Math.round((sustainedMsRef.current / 1800) * 100));
           setBrightnessValue(avgLum);
           setBrightnessProgress(progress);
 
@@ -196,10 +225,10 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
       </div>
 
       <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-theme-text mb-1">
-        Turn on Room Lights
+        Point at Bright Light
       </h2>
       <p className="text-xs text-theme-subtext max-w-xs mb-4">
-        Turn on the room lamp or point phone at bright room lighting
+        Point camera directly at a bright light bulb, lamp, or ceiling light
       </p>
 
       {/* Viewfinder */}
@@ -239,8 +268,12 @@ export const BrightnessCameraView: React.FC<BrightnessCameraViewProps> = ({ onCo
                 </div>
               </div>
 
-              <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 rounded-lg">
-                {brightnessProgress > 0 ? 'Light Detected — Hold Steady' : 'Searching for light...'}
+              <div className="text-center text-xs font-semibold text-white bg-black/60 backdrop-blur-sm py-1.5 px-2 rounded-lg">
+                {brightnessProgress > 0
+                  ? '☀️ Bright Light Detected — Hold Steady!'
+                  : brightnessValue < 125
+                  ? 'Too Dim — Aim directly at light bulb'
+                  : 'Searching for bright light bulb...'}
               </div>
             </div>
 
