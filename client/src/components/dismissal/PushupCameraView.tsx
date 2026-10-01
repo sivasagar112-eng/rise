@@ -53,9 +53,11 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   const smoothCYRef = useRef<number | null>(null);
   const smoothHYRef = useRef<number | null>(null);
 
-  // Anti-cheat: stability tracking
+  // Anti-cheat: stability tracking & accelerometer phone-motion rejection
   const prevRawSYRef = useRef<number | null>(null);       // Previous frame's raw shoulder Y
   const validBodyFramesRef = useRef<number>(0);            // Consecutive frames with valid body detection
+  const isDeviceMovingRef = useRef<boolean>(false);
+  const lastDeviceMotionTimeRef = useRef<number>(0);
 
   // UI State
   const isNative = Capacitor.isNativePlatform();
@@ -99,6 +101,28 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
   useEffect(() => {
     targetRepsRef.current = targetReps;
   }, [targetReps]);
+
+  // Anti-cheat: listen to device accelerometer motion to reject reps when phone is waved in hand
+  useEffect(() => {
+    const handleMotion = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity || e.acceleration;
+      if (!acc) return;
+      const x = acc.x ?? 0;
+      const y = acc.y ?? 0;
+      const z = acc.z ?? 9.8;
+      const mag = Math.hypot(x, y, z);
+      const delta = Math.abs(mag - 9.8);
+      if (delta > 1.8) {
+        lastDeviceMotionTimeRef.current = performance.now();
+        isDeviceMovingRef.current = true;
+      } else if (performance.now() - lastDeviceMotionTimeRef.current > 550) {
+        isDeviceMovingRef.current = false;
+      }
+    };
+
+    window.addEventListener('devicemotion', handleMotion);
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, []);
 
   // Native Google ML Kit PushUpActivity launcher
   const launchNativeMlKit = useCallback(async () => {
@@ -318,6 +342,14 @@ export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
                   setPhase('WAITING_FOR_BODY');
                 }
                 setGuidance('Get into plank position (horizontal to camera)');
+                return;
+              }
+
+              // ── ANTI-CHEAT ACCELEROMETER CHECK ──
+              if (isDeviceMovingRef.current) {
+                validBodyFramesRef.current = 0;
+                setHudData((prev) => ({ ...prev, tracking: false, isPlank: false }));
+                setGuidance('⚠️ Place phone steady on the floor');
                 return;
               }
 

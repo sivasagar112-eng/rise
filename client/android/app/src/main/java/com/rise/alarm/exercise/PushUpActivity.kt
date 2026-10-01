@@ -27,8 +27,14 @@ import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.PoseDetector
 import com.google.mlkit.vision.pose.accurate.AccuratePoseDetectorOptions
 import com.rise.alarm.R
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Native Android Activity for push-up counting using CameraX + ML Kit Pose Detection.
@@ -43,7 +49,7 @@ import java.util.concurrent.Executors
  * This activity is self-contained: it handles camera permission requests,
  * CameraX lifecycle binding, ML Kit initialization, and UI updates.
  */
-class PushUpActivity : AppCompatActivity() {
+class PushUpActivity : AppCompatActivity(), SensorEventListener {
 
     companion object {
         private const val TAG = "PushUpActivity"
@@ -58,6 +64,12 @@ class PushUpActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var permissionOverlay: LinearLayout
     private lateinit var permissionButton: Button
+
+    // Accelerometer anti-cheat: ensures phone is stationary on the floor during push-ups
+    private var sensorManager: SensorManager? = null
+    private var accelerometer: Sensor? = null
+    @Volatile private var isDeviceMoving: Boolean = false
+    private var lastMotionTime: Long = 0L
 
     // Camera
     private lateinit var cameraExecutor: ExecutorService
@@ -112,11 +124,16 @@ class PushUpActivity : AppCompatActivity() {
         permissionOverlay = findViewById(R.id.permissionOverlay)
         permissionButton = findViewById(R.id.permissionButton)
 
-        // Read target from intent
-        targetCount = intent.getIntExtra(EXTRA_TARGET_COUNT, DEFAULT_TARGET).coerceAtLeast(1)
+        // Initialize accelerometer anti-cheat (rejects reps if phone is moved in hand)
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-        // Initialize exercise counter (pure Kotlin, no framework deps)
-        exerciseCounter = PushUpCounter(targetCount = targetCount)
+        // Initialize exercise counter (pure Kotlin, anti-cheat duration & cooldown)
+        exerciseCounter = PushUpCounter(
+            targetCount = targetCount,
+            minRepDurationMs = 500L,
+            repCooldownMs = 600L
+        )
         updateCountUI(0)
 
         // Allow manual rep count by tapping countText or hint
@@ -326,8 +343,49 @@ class PushUpActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        accelerometer?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager?.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) {
+            val ax = event.values[0]
+            val ay = event.values[1]
+            val az = event.values[2]
+            val magnitude = sqrt((ax * ax + ay * ay + az * az).toDouble())
+            val deltaFromGravity = abs(magnitude - SensorManager.GRAVITY_EARTH)
+
+            val now = System.currentTimeMillis()
+            // When phone is moved up and down or shaken in hand, deltaFromGravity exceeds 1.6 m/s^2
+            if (deltaFromGravity > 1.6) {
+                lastMotionTime = now
+                if (!isDeviceMoving) {
+                    isDeviceMoving = true
+                    exerciseCounter.isDeviceMoving = true
+                    runOnUiThread {
+                        statusText.text = "⚠️ Place phone steady on the floor"
+                    }
+                }
+            } else if (isDeviceMoving && (now - lastMotionTime > 550)) {
+                isDeviceMoving = false
+                exerciseCounter.isDeviceMoving = false
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
     override fun onDestroy() {
         super.onDestroy()
+        sensorManager?.unregisterListener(this)
         cameraExecutor.shutdown()
         try {
             poseDetector?.close()

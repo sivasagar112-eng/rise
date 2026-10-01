@@ -27,7 +27,10 @@ class PushUpCounter(
     private val upAngleThreshold: Double = 135.0,
     private val downAngleThreshold: Double = 115.0,
     private val minConfidence: Float = 0.22f,
-    private val requiredConsecutiveFrames: Int = 2
+    private val requiredConsecutiveFrames: Int = 2,
+    private val minRepDurationMs: Long = 0L,
+    private val repCooldownMs: Long = 0L,
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) : ExerciseCounter {
 
     // ML Kit PoseLandmark type constants
@@ -47,6 +50,13 @@ class PushUpCounter(
     override val isCompleted: Boolean
         get() = currentCount >= targetCount
 
+    /**
+     * Set by PushUpActivity when accelerometer detects the phone is being moved/waved in hand.
+     * When true, counting is completely locked until the phone is resting still on the floor.
+     */
+    @Volatile
+    var isDeviceMoving: Boolean = false
+
     // Internal state machine
     private var confirmedPhase: PosePhase = PosePhase.UP
     private var candidatePhase: PosePhase = PosePhase.UP
@@ -54,7 +64,11 @@ class PushUpCounter(
     private var hasBeenDown: Boolean = false
     private var missedFrames: Int = 0
 
-    // Vertical tracking
+    // Timing tracking for anti-cheat
+    private var repStartTimeMs: Long = 0L
+    private var lastRepCompletedMs: Long = 0L
+
+    // Vertical tracking for form feedback
     private var baselineY: Float? = null
     private var lastRecordedAngle: Double? = null
 
@@ -65,6 +79,8 @@ class PushUpCounter(
         consecutiveFramesInCandidate = 0
         hasBeenDown = false
         missedFrames = 0
+        repStartTimeMs = 0L
+        lastRepCompletedMs = 0L
         baselineY = null
         lastRecordedAngle = null
     }
@@ -88,6 +104,19 @@ class PushUpCounter(
             )
         }
 
+        // Anti-Cheat: Reject all counting if phone is being moved up and down in someone's hand
+        if (isDeviceMoving) {
+            hasBeenDown = false
+            candidatePhase = PosePhase.UP
+            consecutiveFramesInCandidate = 0
+            return ExerciseState(
+                count = currentCount,
+                phase = confirmedPhase,
+                isTracking = false,
+                message = "⚠️ Keep phone steady on the floor"
+            )
+        }
+
         if (landmarks.isEmpty()) {
             missedFrames++
             if (missedFrames > 6) {
@@ -104,7 +133,6 @@ class PushUpCounter(
         missedFrames = 0
 
         // Extract key landmarks
-        val nose = findLandmark(landmarks, NOSE)
         val leftShoulder = findLandmark(landmarks, LEFT_SHOULDER)
         val rightShoulder = findLandmark(landmarks, RIGHT_SHOULDER)
         val leftElbow = findLandmark(landmarks, LEFT_ELBOW)
@@ -112,7 +140,7 @@ class PushUpCounter(
         val leftWrist = findLandmark(landmarks, LEFT_WRIST)
         val rightWrist = findLandmark(landmarks, RIGHT_WRIST)
 
-        // 1. Arm Angles (when available)
+        // 1. Arm Angles (Mandatory for real pushup verification)
         val leftAngle = computeArmAngle(leftShoulder, leftElbow, leftWrist)
         val rightAngle = computeArmAngle(rightShoulder, rightElbow, rightWrist)
 
@@ -126,25 +154,34 @@ class PushUpCounter(
             lastRecordedAngle = armAngle
         }
 
-        // 2. Vertical Torso & Head Tracking
-        // Computes mid-upper body Y position (Shoulders + Nose)
-        val yPoints = mutableListOf<Float>()
-        if (leftShoulder != null) yPoints.add(leftShoulder.y)
-        if (rightShoulder != null) yPoints.add(rightShoulder.y)
-        if (nose != null) yPoints.add(nose.y)
-
-        if (yPoints.isEmpty()) {
+        // ANTI-CHEAT RULE: A push-up CANNOT be counted if no arm angles are visible.
+        // Pure vertical displacement without elbow flexion is what happens when someone moves the phone.
+        val hasArmTracking = armAngle != null || leftAngle != null || rightAngle != null
+        if (!hasArmTracking) {
             return ExerciseState(
                 count = currentCount,
                 phase = confirmedPhase,
                 isTracking = false,
-                message = "Face camera while on the floor"
+                message = "Position phone on floor so your arms are in view"
             )
         }
 
-        val currentY = yPoints.sum() / yPoints.size.toFloat()
+        // Check for genuine elbow flexion (DOWN) and extension (UP)
+        val hasArmBend = (armAngle != null && armAngle <= downAngleThreshold) ||
+                (leftAngle != null && leftAngle <= downAngleThreshold) ||
+                (rightAngle != null && rightAngle <= downAngleThreshold)
 
-        // Approximate scale reference using shoulder width
+        val hasArmExtension = (armAngle != null && armAngle >= upAngleThreshold) ||
+                (leftAngle != null && leftAngle >= upAngleThreshold) ||
+                (rightAngle != null && rightAngle >= upAngleThreshold)
+
+        // 2. Vertical Torso & Head Tracking for form guidance
+        val yPoints = mutableListOf<Float>()
+        if (leftShoulder != null) yPoints.add(leftShoulder.y)
+        if (rightShoulder != null) yPoints.add(rightShoulder.y)
+
+        val currentY = if (yPoints.isNotEmpty()) yPoints.sum() / yPoints.size.toFloat() else 0f
+
         val shoulderWidth = if (leftShoulder != null && rightShoulder != null) {
             val dx = leftShoulder.x - rightShoulder.x
             val dy = leftShoulder.y - rightShoulder.y
@@ -153,67 +190,61 @@ class PushUpCounter(
             120f
         }
 
-        // Initialize or gently adapt baseline UP height
-        val isLikelyUp = armAngle == null || armAngle >= upAngleThreshold
         if (baselineY == null) {
             baselineY = currentY
-        } else if (isLikelyUp && currentY < baselineY!!) {
-            // User pushed higher up than previous baseline
+        } else if (hasArmExtension && currentY < baselineY!!) {
             baselineY = baselineY!! * 0.8f + currentY * 0.2f
-        } else if (isLikelyUp && !hasBeenDown) {
+        } else if (hasArmExtension && !hasBeenDown) {
             baselineY = baselineY!! * 0.95f + currentY * 0.05f
         }
 
         val verticalDropPx = max(0f, currentY - (baselineY ?: currentY))
         val verticalDropRatio = verticalDropPx / shoulderWidth
 
-        // 3. Dual-Mode Instantaneous Phase Classification
-        val instantPhase: PosePhase = if (armAngle != null) {
-            // Both angle and vertical displacement available
-            val isAngleDown = armAngle <= downAngleThreshold
-            val isHybridDown = armAngle <= (downAngleThreshold + 12.0) && verticalDropRatio >= 0.14f
-            val isPureDropDown = verticalDropRatio >= 0.26f
-
-            if (isAngleDown || isHybridDown || isPureDropDown) {
-                PosePhase.DOWN
-            } else if (armAngle >= upAngleThreshold && verticalDropRatio <= 0.08f) {
-                PosePhase.UP
-            } else {
-                PosePhase.TRANSITION
-            }
-        } else {
-            // Wrists out of frame (hands on floor) -> Vertical displacement tracking
-            if (verticalDropRatio >= 0.20f) {
-                PosePhase.DOWN
-            } else if (verticalDropRatio <= 0.07f) {
-                PosePhase.UP
-            } else {
-                PosePhase.TRANSITION
-            }
+        // 3. Strict Phase Classification
+        // DOWN requires: Genuine elbow bend (<= 115°)
+        // UP requires: Full arm extension (>= 135°)
+        val instantPhase: PosePhase = when {
+            hasArmBend -> PosePhase.DOWN
+            hasArmExtension -> PosePhase.UP
+            else -> PosePhase.TRANSITION
         }
 
-        // 4. Smooth State Machine with Inflection Snapping
-        if (instantPhase == PosePhase.DOWN) {
-            hasBeenDown = true
-            confirmedPhase = PosePhase.DOWN
-            candidatePhase = PosePhase.DOWN
-            consecutiveFramesInCandidate = requiredConsecutiveFrames
-        } else {
-            if (instantPhase == candidatePhase) {
-                consecutiveFramesInCandidate++
-            } else {
-                candidatePhase = instantPhase
-                consecutiveFramesInCandidate = 1
-            }
+        // 4. Robust State Machine with Anti-Shake Debouncing and Timing Verification
+        val now = clock()
 
-            if (consecutiveFramesInCandidate >= requiredConsecutiveFrames) {
-                if (candidatePhase == PosePhase.UP && hasBeenDown) {
-                    currentCount++
-                    hasBeenDown = false
-                    confirmedPhase = PosePhase.UP
-                } else if (candidatePhase != confirmedPhase) {
-                    confirmedPhase = candidatePhase
+        if (instantPhase == candidatePhase) {
+            consecutiveFramesInCandidate++
+        } else {
+            candidatePhase = instantPhase
+            consecutiveFramesInCandidate = 1
+        }
+
+        if (consecutiveFramesInCandidate >= requiredConsecutiveFrames) {
+            if (candidatePhase == PosePhase.DOWN) {
+                if (!hasBeenDown) {
+                    repStartTimeMs = now
                 }
+                hasBeenDown = true
+                confirmedPhase = PosePhase.DOWN
+            } else if (candidatePhase == PosePhase.UP) {
+                if (hasBeenDown) {
+                    val duration = now - repStartTimeMs
+                    val cooldown = now - lastRepCompletedMs
+                    val validDuration = minRepDurationMs <= 0L || duration >= minRepDurationMs
+                    val validCooldown = repCooldownMs <= 0L || cooldown >= repCooldownMs
+
+                    if (validDuration && validCooldown) {
+                        currentCount++
+                        lastRepCompletedMs = now
+                        hasBeenDown = false
+                        confirmedPhase = PosePhase.UP
+                    }
+                } else {
+                    confirmedPhase = PosePhase.UP
+                }
+            } else if (candidatePhase != confirmedPhase) {
+                confirmedPhase = candidatePhase
             }
         }
 
@@ -249,19 +280,13 @@ class PushUpCounter(
             }
             confirmedPhase == PosePhase.UP -> {
                 if (currentCount == 0) {
-                    "Ready! Lower your chest towards floor"
+                    "Plank ready! Lower your chest down"
                 } else {
-                    "Pushups: $currentCount / $targetCount"
+                    "Rep $currentCount complete! Lower down again"
                 }
             }
             else -> {
-                if (hasBeenDown) {
-                    "Push up to finish rep!"
-                } else if (angle != null) {
-                    "Lower down (%.0f°)".format(angle)
-                } else {
-                    "Lower your chest (%.0f%% drop)".format(dropRatio * 100f)
-                }
+                "Bend elbows to lower chest"
             }
         }
     }
