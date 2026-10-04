@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StorageService } from '../../services/StorageService';
 import { synth } from '../../services/WebAudioSynth';
 import { api } from '../../api/client';
-import { Sun, Moon, Volume2, ShieldCheck, LogOut, AlertCircle, X, Music, Bell, Camera } from 'lucide-react';
+import { Sun, Moon, Volume2, ShieldCheck, LogOut, AlertCircle, X, Music, Bell, Camera, Clock, Smartphone } from 'lucide-react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { AlarmNotificationService } from '../../services/AlarmNotificationService';
 
@@ -30,6 +30,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [cameraStatus, setCameraStatus] = useState<string>('Untested');
   const [notificationStatus, setNotificationStatus] = useState<string>('Untested');
   const [batteryStatus, setBatteryStatus] = useState<string>('Checking…');
+  const [exactAlarmStatus, setExactAlarmStatus] = useState<string>('Checking…');
+  const [fullScreenStatus, setFullScreenStatus] = useState<string>('Checking…');
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [notificationTesting, setNotificationTesting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -55,6 +57,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     AlarmNotificationService.isBatteryOptimizationIgnored().then((ignored) => {
       setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
+    }).catch(() => {});
+
+    AlarmNotificationService.canScheduleExactAlarms().then((can) => {
+      setExactAlarmStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
+    }).catch(() => {});
+
+    AlarmNotificationService.canUseFullScreenIntent().then((can) => {
+      setFullScreenStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
     }).catch(() => {});
   }, []);
 
@@ -171,6 +181,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setTimeout(async () => {
       const ignored = await AlarmNotificationService.isBatteryOptimizationIgnored();
       setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
+    }, 1500);
+  };
+
+  const handleRequestExactAlarm = async () => {
+    await AlarmNotificationService.requestExactAlarmPermission();
+    setTimeout(async () => {
+      const can = await AlarmNotificationService.canScheduleExactAlarms();
+      setExactAlarmStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
+    }, 1500);
+  };
+
+  const handleRequestFullScreen = async () => {
+    await AlarmNotificationService.requestFullScreenIntentPermission();
+    setTimeout(async () => {
+      const can = await AlarmNotificationService.canUseFullScreenIntent();
+      setFullScreenStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
     }, 1500);
   };
 
@@ -381,6 +407,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             >
               <ShieldCheck size={14} />
               <span>Allow Background</span>
+            </button>
+          </div>
+
+          {/* Exact Alarm Permission */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-theme-text">Exact Alarm Scheduling</p>
+              <p className="text-xs text-theme-subtext mt-0.5">Exact Timing: {exactAlarmStatus}</p>
+            </div>
+            <button
+              onClick={handleRequestExactAlarm}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-theme-border bg-theme-bg text-theme-text text-sm font-semibold hover:bg-theme-border/30 transition-colors"
+            >
+              <Clock size={14} />
+              <span>Configure Alarms</span>
+            </button>
+          </div>
+
+          {/* Full Screen Over Lockscreen */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-theme-text">Display Over Lock Screen</p>
+              <p className="text-xs text-theme-subtext mt-0.5">Lockscreen UI: {fullScreenStatus}</p>
+            </div>
+            <button
+              onClick={handleRequestFullScreen}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-theme-border bg-theme-bg text-theme-text text-sm font-semibold hover:bg-theme-border/30 transition-colors"
+            >
+              <Smartphone size={14} />
+              <span>Allow Screen Pop</span>
             </button>
           </div>
         </div>

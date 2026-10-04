@@ -11,7 +11,8 @@ import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
-import { BellOff } from 'lucide-react';
+import { BellOff, ShieldAlert, ChevronRight } from 'lucide-react';
+import { AlarmNotificationService } from './services/AlarmNotificationService';
 
 // Lazy-load heavy screens to make initial app launch near instantaneous
 const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal').then((m) => ({ default: m.AlarmEditorModal })));
@@ -33,6 +34,22 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!StorageService.hasSeenOnboarding());
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [backgroundReady, setBackgroundReady] = useState<boolean>(true);
+
+  const checkBackgroundStatus = React.useCallback(async () => {
+    try {
+      const status = await AlarmNotificationService.getBackgroundPermissionStatus();
+      setBackgroundReady(status.allGranted);
+    } catch {
+      setBackgroundReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkBackgroundStatus();
+    window.addEventListener('focus', checkBackgroundStatus);
+    return () => window.removeEventListener('focus', checkBackgroundStatus);
+  }, [checkBackgroundStatus]);
 
   const showToast = React.useCallback((text: string, icon: 'clock' | 'info' = 'clock') => {
     setToast({
@@ -245,6 +262,25 @@ export const App: React.FC = () => {
         {/* Tab 1: Alarms */}
         {activeTab === 'ALARM' && (
           <div className="animate-fade-in space-y-1">
+            {/* Background Reliability Alert Banner */}
+            {!backgroundReady && (
+              <div
+                onClick={() => setIsSettingsOpen(true)}
+                className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                    <ShieldAlert size={18} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-amber-200">Background Ringing Setup Needed</p>
+                    <p className="text-[11px] text-amber-300/80">Tap to allow alarms when phone is locked or closed</p>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-amber-400 shrink-0" />
+              </div>
+            )}
+
             {alarms.length === 0 ? (
               <div className="py-16 text-center text-theme-subtext space-y-3">
                 <div className="w-16 h-16 rounded-full bg-theme-card border border-theme-border flex items-center justify-center mx-auto text-neutral-400">

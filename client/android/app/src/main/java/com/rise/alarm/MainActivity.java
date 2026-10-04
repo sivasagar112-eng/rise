@@ -152,10 +152,18 @@ public class MainActivity extends BridgeActivity {
         boolean fromAlarmService = intent.getBooleanExtra("fromAlarmService", false);
         String alarmId = intent.getStringExtra("alarmId");
 
-        // Process only if fromAlarmService flag is present or AlarmService is actively running
-        if (!fromAlarmService && !AlarmService.isServiceRunning) {
-            Log.d(TAG, "handleAlarmIntent: Ignoring intent because AlarmService is not running (regular app open)");
+        // Process only if fromAlarmService flag is present or AlarmService is actively running or direct player is ringing or pending alarm exists
+        boolean hasPending = AlarmSchedulerPlugin.getPendingAlarmData() != null;
+        if (!fromAlarmService && !AlarmService.isServiceRunning && !AlarmTriggerHandler.isRinging() && !hasPending) {
+            Log.d(TAG, "handleAlarmIntent: Ignoring intent because no alarm is active or pending (regular app open)");
             return;
+        }
+
+        if (alarmId == null || alarmId.trim().isEmpty()) {
+            com.getcapacitor.JSObject pending = AlarmSchedulerPlugin.getPendingAlarmData();
+            if (pending != null) {
+                alarmId = pending.optString("alarmId", null);
+            }
         }
 
         if (alarmId == null || alarmId.trim().isEmpty()) {

@@ -33,8 +33,8 @@ import androidx.core.app.NotificationCompat;
  */
 public class AlarmService extends Service {
     private static final String TAG = "RiseAlarmService";
-    private static final String CHANNEL_ID = "rise_alarm_foreground_channel";
-    private static final int NOTIFICATION_ID = 999999;
+    private static final String CHANNEL_ID = AlarmTriggerHandler.NOTIFICATION_CHANNEL_ID;
+    private static final int NOTIFICATION_ID = AlarmTriggerHandler.NOTIFICATION_ID;
 
     public static volatile boolean isServiceRunning = false;
     private static volatile boolean isExplicitlyStopped = false;
@@ -210,20 +210,21 @@ public class AlarmService extends Service {
             .setAutoCancel(false)
             .build();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android 14 (API 34+): Use FOREGROUND_SERVICE_TYPE_SPECIAL_USE exclusively when started from background.
+            // Avoid FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK which is forbidden from background receivers.
             try {
-                startForeground(NOTIFICATION_ID, notification, serviceType);
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_SPECIAL_USE");
             } catch (Exception e) {
-                Log.w(TAG, "startForeground with SPECIAL_USE failed, falling back to basic startForeground", e);
-                try {
-                    startForeground(NOTIFICATION_ID, notification);
-                } catch (Exception ex) {
-                    Log.e(TAG, "Fatal startForeground exception", ex);
-                }
+                Log.w(TAG, "startForeground with SPECIAL_USE failed", e);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+                Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK");
+            } catch (Exception e) {
+                Log.w(TAG, "startForeground with MEDIA_PLAYBACK failed", e);
             }
         } else {
             startForeground(NOTIFICATION_ID, notification);
@@ -359,15 +360,21 @@ public class AlarmService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "Rise Alarm",
+                "Rise Wake-Up Alarm",
                 NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Active alarm notification");
+            channel.setDescription("Urgent wake-up alarm sound and full-screen challenge");
             channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 500, 500, 500});
+            channel.setVibrationPattern(new long[]{0, 500, 200, 500, 200, 500});
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             channel.setBypassDnd(true);
-            channel.setSound(null, null); // Sound handled by dedicated MediaPlayer
+
+            Uri alarmSoundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.rise_alarm);
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .build();
+            channel.setSound(alarmSoundUri, audioAttributes);
 
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
@@ -382,6 +389,9 @@ public class AlarmService extends Service {
     public static void stopAlarmService(Context context) {
         isExplicitlyStopped = true;
         isServiceRunning = false;
+
+        AlarmTriggerHandler.stopDirectPlayback();
+        AlarmTriggerHandler.releaseWakeLock();
 
         try {
             android.content.SharedPreferences.Editor editor = context.getSharedPreferences(PREF_ACTIVE_ALARM, Context.MODE_PRIVATE).edit();

@@ -1,6 +1,7 @@
 package com.rise.alarm;
 
 import android.app.AlarmManager;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -313,6 +314,75 @@ public class AlarmSchedulerPlugin extends Plugin {
     }
 
     /**
+     * Check whether full screen intent permission is granted on Android 14+ (API 34+)
+     */
+    @PluginMethod
+    public void canUseFullScreenIntent(PluginCall call) {
+        JSObject result = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            result.put("canUse", nm != null && nm.canUseFullScreenIntent());
+        } else {
+            result.put("canUse", true);
+        }
+        call.resolve(result);
+    }
+
+    /**
+     * Request full screen intent permission by opening system settings on Android 14+
+     */
+    @PluginMethod
+    public void requestFullScreenIntentPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null && !nm.canUseFullScreenIntent()) {
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                    intent.setData(android.net.Uri.parse("package:" + getContext().getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(intent);
+                } catch (Exception e) {
+                    Log.w(TAG, "Cannot launch ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT", e);
+                }
+            }
+        }
+        JSObject result = new JSObject();
+        result.put("success", true);
+        call.resolve(result);
+    }
+
+    /**
+     * Retrieve aggregate background reliability permission status
+     */
+    @PluginMethod
+    public void getBackgroundPermissionStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean canExact = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager am = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            canExact = am != null && am.canScheduleExactAlarms();
+        }
+
+        boolean canFullScreen = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            canFullScreen = nm != null && nm.canUseFullScreenIntent();
+        }
+
+        boolean isBatteryIgnored = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            isBatteryIgnored = pm != null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+        }
+
+        result.put("canExact", canExact);
+        result.put("canFullScreen", canFullScreen);
+        result.put("isBatteryIgnored", isBatteryIgnored);
+        result.put("allGranted", canExact && canFullScreen && isBatteryIgnored);
+        call.resolve(result);
+    }
+
+    /**
      * Retrieve any pending alarm that caused the app to launch or ring
      */
     @PluginMethod
@@ -395,6 +465,7 @@ public class AlarmSchedulerPlugin extends Plugin {
     ) {
         Intent intent = new Intent(context, AlarmReceiver.class);
         intent.setAction("com.rise.alarm.FIRE_ALARM");
+        intent.setData(android.net.Uri.parse("rise://alarm/" + alarmId));
         intent.putExtra("alarmId", alarmId);
         intent.putExtra("alarmTime", alarmTime);
         intent.putExtra("alarmLabel", alarmLabel);

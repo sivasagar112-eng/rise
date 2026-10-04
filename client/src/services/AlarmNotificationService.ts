@@ -39,9 +39,20 @@ interface AlarmSchedulerPluginInterface {
 
   requestExactAlarmPermission(): Promise<{ success: boolean }>;
 
+  canUseFullScreenIntent(): Promise<{ canUse: boolean }>;
+
+  requestFullScreenIntentPermission(): Promise<{ success: boolean }>;
+
   isBatteryOptimizationIgnored(): Promise<{ isIgnored: boolean }>;
 
   requestBatteryOptimizationExemption(): Promise<{ success: boolean }>;
+
+  getBackgroundPermissionStatus(): Promise<{
+    canExact: boolean;
+    canFullScreen: boolean;
+    isBatteryIgnored: boolean;
+    allGranted: boolean;
+  }>;
 
   getPendingAlarm(): Promise<{
     alarm: {
@@ -431,5 +442,70 @@ export class AlarmNotificationService {
         console.warn('[AlarmNotificationService] requestBatteryOptimizationExemption error:', e);
       }
     }
+  }
+
+  // Check whether exact alarms can be scheduled
+  public static async canScheduleExactAlarms(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.canScheduleExactAlarms();
+        return Boolean(res?.canSchedule);
+      } catch (e) {
+        console.warn('[AlarmNotificationService] canScheduleExactAlarms error:', e);
+      }
+    }
+    return true;
+  }
+
+  // Open system settings to grant exact alarm scheduling
+  public static async requestExactAlarmPermission(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.requestExactAlarmPermission();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] requestExactAlarmPermission error:', e);
+      }
+    }
+  }
+
+  // Check whether full-screen intent is enabled on Android 14+
+  public static async canUseFullScreenIntent(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.canUseFullScreenIntent();
+        return Boolean(res?.canUse);
+      } catch (e) {
+        console.warn('[AlarmNotificationService] canUseFullScreenIntent error:', e);
+      }
+    }
+    return true;
+  }
+
+  // Open system settings to grant full-screen intent on Android 14+
+  public static async requestFullScreenIntentPermission(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.requestFullScreenIntentPermission();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] requestFullScreenIntentPermission error:', e);
+      }
+    }
+  }
+
+  // Check aggregate background reliability permission status
+  public static async getBackgroundPermissionStatus(): Promise<{
+    canExact: boolean;
+    canFullScreen: boolean;
+    isBatteryIgnored: boolean;
+    allGranted: boolean;
+  }> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        return await AlarmSchedulerNative.getBackgroundPermissionStatus();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] getBackgroundPermissionStatus error:', e);
+      }
+    }
+    return { canExact: true, canFullScreen: true, isBatteryIgnored: true, allGranted: true };
   }
 }

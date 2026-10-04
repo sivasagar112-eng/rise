@@ -17,7 +17,18 @@ public class AlarmReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.d(TAG, "Alarm received via AlarmManager broadcast");
-        AlarmTriggerHandler.handleAlarmTrigger(context, intent);
+        Log.d(TAG, "Alarm received via AlarmManager broadcast: " + (intent != null ? intent.getAction() : "null"));
+        final PendingResult pendingResult = goAsync();
+        try {
+            AlarmTriggerHandler.handleAlarmTrigger(context, intent);
+        } catch (Throwable t) {
+            Log.e(TAG, "Error handling alarm trigger in AlarmReceiver", t);
+        } finally {
+            if (pendingResult != null) {
+                try {
+                    pendingResult.finish();
+                } catch (Exception ignored) {}
+            }
+        }
     }
 }
