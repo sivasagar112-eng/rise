@@ -189,6 +189,12 @@ public class AlarmService extends Service {
             ? pushupTarget + " Pushups"
             : "CLICK_SHAKE".equals(dismissalType)
             ? "100 Taps + 5 Shakes"
+            : "BRIGHTNESS".equals(dismissalType)
+            ? "Turn on Room Lights"
+            : "OBJECT_MATCH".equals(dismissalType)
+            ? "Scan Target Object"
+            : "MATH".equals(dismissalType)
+            ? "Solve Math Puzzles"
             : dismissalType != null ? dismissalType.replace("_", " ") : "Wake-Up Challenge";
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -205,7 +211,20 @@ public class AlarmService extends Service {
             .build();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            }
+            try {
+                startForeground(NOTIFICATION_ID, notification, serviceType);
+            } catch (Exception e) {
+                Log.w(TAG, "startForeground with SPECIAL_USE failed, falling back to basic startForeground", e);
+                try {
+                    startForeground(NOTIFICATION_ID, notification);
+                } catch (Exception ex) {
+                    Log.e(TAG, "Fatal startForeground exception", ex);
+                }
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }

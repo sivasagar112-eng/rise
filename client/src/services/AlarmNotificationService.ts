@@ -39,6 +39,10 @@ interface AlarmSchedulerPluginInterface {
 
   requestExactAlarmPermission(): Promise<{ success: boolean }>;
 
+  isBatteryOptimizationIgnored(): Promise<{ isIgnored: boolean }>;
+
+  requestBatteryOptimizationExemption(): Promise<{ success: boolean }>;
+
   getPendingAlarm(): Promise<{
     alarm: {
       alarmId: string;
@@ -76,6 +80,25 @@ export class AlarmNotificationService {
     if (this.isInitialized) return;
 
     try {
+      // 0. Native exact alarm & battery optimization checks (crucial for alarms to ring when killed/swiped on Realme, Xiaomi, Samsung)
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const exact = await AlarmSchedulerNative.canScheduleExactAlarms();
+          if (!exact.canSchedule) {
+            console.log('[AlarmNotificationService] Requesting exact alarm permission');
+            await AlarmSchedulerNative.requestExactAlarmPermission();
+          }
+
+          const battery = await AlarmSchedulerNative.isBatteryOptimizationIgnored();
+          if (!battery.isIgnored) {
+            console.log('[AlarmNotificationService] Requesting battery optimization exemption');
+            await AlarmSchedulerNative.requestBatteryOptimizationExemption();
+          }
+        } catch (e) {
+          console.warn('[AlarmNotificationService] Battery/ExactAlarm permission check error:', e);
+        }
+      }
+
       // 1. Request permissions for Android 13+ / Web
       const perm = await LocalNotifications.checkPermissions();
       if (perm.display !== 'granted') {
@@ -384,5 +407,29 @@ export class AlarmNotificationService {
       }
     }
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  }
+
+  // Check whether battery optimization is ignored (true = unrestricted background execution)
+  public static async isBatteryOptimizationIgnored(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.isBatteryOptimizationIgnored();
+        return Boolean(res?.isIgnored);
+      } catch (e) {
+        console.warn('[AlarmNotificationService] isBatteryOptimizationIgnored error:', e);
+      }
+    }
+    return true;
+  }
+
+  // Prompt the user to whitelist the app from aggressive OEM battery savers
+  public static async requestBatteryOptimizationExemption(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.requestBatteryOptimizationExemption();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] requestBatteryOptimizationExemption error:', e);
+      }
+    }
   }
 }

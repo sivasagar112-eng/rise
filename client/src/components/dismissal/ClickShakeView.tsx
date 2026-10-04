@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Smartphone, Check, Zap, Sparkles, HandMetal } from 'lucide-react';
+import { Smartphone, Check, Zap, Sparkles } from 'lucide-react';
 import { synth } from '../../services/WebAudioSynth';
 
 interface ClickShakeViewProps {
@@ -14,7 +14,6 @@ export const ClickShakeView: React.FC<ClickShakeViewProps> = ({ onComplete }) =>
   const [tapCount, setTapCount] = useState<number>(0);
   const [shakeCount, setShakeCount] = useState<number>(0);
   const [isPressing, setIsPressing] = useState<boolean>(false);
-  const [showFallbackShake, setShowFallbackShake] = useState<boolean>(false);
   const [permissionRequested, setPermissionRequested] = useState<boolean>(false);
 
   const completedRef = useRef(false);
@@ -114,11 +113,6 @@ export const ClickShakeView: React.FC<ClickShakeViewProps> = ({ onComplete }) =>
   useEffect(() => {
     if (phase !== 'SHAKING' || completedRef.current) return;
 
-    // Show fallback shake button after 3 seconds in case device lacks accelerometer or permissions
-    const fallbackTimer = setTimeout(() => {
-      setShowFallbackShake(true);
-    }, 3000);
-
     // Request iOS device motion permission if required
     if (
       !permissionRequested &&
@@ -160,7 +154,6 @@ export const ClickShakeView: React.FC<ClickShakeViewProps> = ({ onComplete }) =>
     window.addEventListener('devicemotion', handleDeviceMotion, { passive: true });
 
     return () => {
-      clearTimeout(fallbackTimer);
       window.removeEventListener('devicemotion', handleDeviceMotion);
     };
   }, [phase, permissionRequested, registerShake]);
@@ -243,17 +236,6 @@ export const ClickShakeView: React.FC<ClickShakeViewProps> = ({ onComplete }) =>
           <div className="text-sm font-bold text-neutral-300">
             {shakeCount} of {TOTAL_SHAKES} Shakes
           </div>
-
-          {/* Fallback button if sensor doesn't respond */}
-          {showFallbackShake && (
-            <button
-              onClick={registerShake}
-              className="mt-6 px-5 py-2.5 rounded-2xl bg-neutral-800 hover:bg-neutral-700 active:scale-95 border border-neutral-700 text-xs font-bold text-amber-300 transition-all flex items-center gap-2"
-            >
-              <HandMetal size={14} />
-              <span>Tap to Register Shake ({TOTAL_SHAKES - shakeCount} left)</span>
-            </button>
-          )}
         </div>
       ) : (
         /* PHASE 1: 100 TAPS */

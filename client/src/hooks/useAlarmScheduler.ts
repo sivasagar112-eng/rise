@@ -36,7 +36,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
     onAlarmTriggerRef.current = onAlarmTrigger;
   }, [onAlarmTrigger]);
 
-  const triggerAlarm = useCallback((alarm: Alarm, fromNative: boolean = false) => {
+  const triggerAlarm = useCallback((alarm: Alarm, fromNative: boolean = false, nativeDismissalType?: string) => {
     // Prevent duplicate triggers across ticker, native events, and notifications
     if (activeAlarmIdRef.current === alarm.id) {
       console.log(`[useAlarmScheduler] Alarm ${alarm.id} is already active, ignoring duplicate trigger`);
@@ -56,14 +56,23 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       return;
     }
 
-    // Use assigned dismissalType or pick random task from the 5 available tasks
-    const runtimeDismissal = alarm.dismissalType || getRandomDismissalTask();
+    // CRITICAL: Determine concrete dismissal task once.
+    // If native already assigned a task for the notification, WE MUST USE THE EXACT SAME TASK.
+    let runtimeDismissal: DismissalType;
+    if (nativeDismissalType && nativeDismissalType !== 'RANDOM') {
+      runtimeDismissal = nativeDismissalType as DismissalType;
+    } else if (alarm.dismissalType && alarm.dismissalType !== 'RANDOM') {
+      runtimeDismissal = alarm.dismissalType;
+    } else {
+      runtimeDismissal = getRandomDismissalTask();
+    }
+
     const runtimeAlarm: Alarm = {
       ...alarm,
       dismissalType: runtimeDismissal,
       pushupTarget: alarm.pushupTarget || 5,
     };
-    console.log(`[useAlarmScheduler] Task selected for alarm ${alarm.id}: ${runtimeDismissal} (fromNative=${fromNative})`);
+    console.log(`[useAlarmScheduler] Concrete task selected for alarm ${alarm.id}: ${runtimeDismissal} (fromNative=${fromNative}, nativeType=${nativeDismissalType})`);
 
     activeAlarmIdRef.current = runtimeAlarm.id;
     setActiveRingingAlarm(runtimeAlarm);
@@ -142,8 +151,9 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
           return;
         }
 
-        console.log('[useAlarmScheduler] Triggering matched alarm from native event:', match.id);
-        triggerAlarm(match, true /* fromNative */);
+        const nativeDismissal = typeof triggerData === 'object' ? triggerData?.dismissalType : undefined;
+        console.log('[useAlarmScheduler] Triggering matched alarm from native event:', match.id, 'with nativeDismissal:', nativeDismissal);
+        triggerAlarm(match, true /* fromNative */, nativeDismissal);
       } else {
         console.error('[useAlarmScheduler] Failed to find or construct alarm for ID:', alarmId);
       }

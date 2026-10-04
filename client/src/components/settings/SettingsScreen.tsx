@@ -29,6 +29,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [isPlayingAudioTest, setIsPlayingAudioTest] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<string>('Untested');
   const [notificationStatus, setNotificationStatus] = useState<string>('Untested');
+  const [batteryStatus, setBatteryStatus] = useState<string>('Checking…');
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [notificationTesting, setNotificationTesting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -50,6 +51,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       if (perm.display === 'granted') {
         setNotificationStatus('Granted ✓');
       }
+    }).catch(() => {});
+
+    AlarmNotificationService.isBatteryOptimizationIgnored().then((ignored) => {
+      setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
     }).catch(() => {});
   }, []);
 
@@ -159,6 +164,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     } finally {
       setTimeout(() => setNotificationTesting(false), 2000);
     }
+  };
+
+  const handleRequestBatteryExemption = async () => {
+    await AlarmNotificationService.requestBatteryOptimizationExemption();
+    setTimeout(async () => {
+      const ignored = await AlarmNotificationService.isBatteryOptimizationIgnored();
+      setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
+    }, 1500);
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -353,6 +366,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             >
               <Bell size={14} />
               <span>{notificationTesting ? 'Testing…' : 'Test Capsule'}</span>
+            </button>
+          </div>
+
+          {/* Background Reliability / Battery Optimization */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-theme-text">Background Reliability</p>
+              <p className="text-xs text-theme-subtext mt-0.5">Battery Saver: {batteryStatus}</p>
+            </div>
+            <button
+              onClick={handleRequestBatteryExemption}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-theme-border bg-theme-bg text-theme-text text-sm font-semibold hover:bg-theme-border/30 transition-colors"
+            >
+              <ShieldCheck size={14} />
+              <span>Allow Background</span>
             </button>
           </div>
         </div>
