@@ -82,7 +82,7 @@ export function useBackNavigation({
         return;
       }
 
-      // 5. If user is in another tab (Activity or Profile), navigate back to previous tab / ALARM tab
+      // 5. If user is in the Profile tab, navigate back to ALARM tab
       if (tabHistoryRef.current.length > 1) {
         tabHistoryRef.current.pop(); // Remove current tab
         const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'ALARM';

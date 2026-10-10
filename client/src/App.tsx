@@ -17,7 +17,6 @@ import { AlarmNotificationService } from './services/AlarmNotificationService';
 // Lazy-load heavy screens to make initial app launch near instantaneous
 const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal').then((m) => ({ default: m.AlarmEditorModal })));
 const RingingScreen = lazy(() => import('./components/ringing/RingingScreen').then((m) => ({ default: m.RingingScreen })));
-const ActivityScreen = lazy(() => import('./components/stats/ActivityScreen').then((m) => ({ default: m.ActivityScreen })));
 const ProfileScreen = lazy(() => import('./components/profile/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
 const SettingsScreen = lazy(() => import('./components/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const CameraPermissionModal = lazy(() => import('./components/onboarding/CameraPermissionModal').then((m) => ({ default: m.CameraPermissionModal })));
@@ -308,16 +307,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Activity History */}
-        {activeTab === 'ACTIVITY' && (
-          <Suspense fallback={null}>
-            <div className="animate-fade-in">
-              <ActivityScreen />
-            </div>
-          </Suspense>
-        )}
-
-        {/* Tab 3: Profile */}
+        {/* Tab 2: Profile */}
         {activeTab === 'PROFILE' && (
           <Suspense fallback={null}>
             <div className="animate-fade-in">

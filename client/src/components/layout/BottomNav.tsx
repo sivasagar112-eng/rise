@@ -1,7 +1,7 @@
 import React from 'react';
-import { Bell, History, User, Plus } from 'lucide-react';
+import { Bell, User, Plus } from 'lucide-react';
 
-export type TabType = 'ALARM' | 'ACTIVITY' | 'PROFILE';
+export type TabType = 'ALARM' | 'PROFILE';
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -29,9 +29,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </div>
       )}
 
-      {/* Bottom Bar Navigation with evenly spaced Alarm, Activity, and Profile */}
+      {/* Bottom Bar Navigation with Alarm and Profile */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-theme-bg/95 backdrop-blur-md border-t border-theme-border py-2.5 px-4 select-none transition-colors duration-200">
-        <div className="w-full max-w-md mx-auto grid grid-cols-3 items-center text-center">
+        <div className="w-full max-w-md mx-auto grid grid-cols-2 items-center text-center">
           {/* Tab 1: Alarm */}
           <button
             onClick={() => onSelectTab('ALARM')}
@@ -45,20 +45,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <span className="text-xs mt-1">Alarm</span>
           </button>
 
-          {/* Tab 2: Activity */}
-          <button
-            onClick={() => onSelectTab('ACTIVITY')}
-            className={`flex flex-col items-center py-1 transition-colors ${
-              activeTab === 'ACTIVITY'
-                ? 'text-blue-500 font-semibold'
-                : 'text-theme-subtext hover:text-theme-text'
-            }`}
-          >
-            <History size={22} className={activeTab === 'ACTIVITY' ? 'stroke-[2.3]' : 'stroke-[1.8]'} />
-            <span className="text-xs mt-1">Activity</span>
-          </button>
-
-          {/* Tab 3: Profile */}
+          {/* Tab 2: Profile */}
           <button
             onClick={() => onSelectTab('PROFILE')}
             className={`flex flex-col items-center py-1 transition-colors ${
