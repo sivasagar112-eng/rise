@@ -23,10 +23,26 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
             "android.intent.action.QUICKBOOT_POWERON".equals(action) ||
-            "com.htc.intent.action.QUICKBOOT_POWERON".equals(action)) {
+            "com.htc.intent.action.QUICKBOOT_POWERON".equals(action) ||
+            Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
+            Intent.ACTION_TIME_CHANGED.equals(action) ||
+            Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
 
-            Log.d(TAG, "Device booted, re-scheduling Rise alarms...");
-            rescheduleAlarms(context);
+            Log.d(TAG, "Device booted, package replaced, or time changed (" + action + "), re-scheduling Rise alarms...");
+            final PendingResult pendingResult = goAsync();
+            new Thread(() -> {
+                try {
+                    rescheduleAlarms(context);
+                } catch (Throwable t) {
+                    Log.e(TAG, "Error in BootReceiver rescheduleAlarms", t);
+                } finally {
+                    if (pendingResult != null) {
+                        try {
+                            pendingResult.finish();
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }).start();
         }
     }
 

@@ -14,6 +14,7 @@ import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -174,15 +175,35 @@ public class AlarmService extends Service {
         launchIntent.putExtra("rampDuration", rampDuration);
         launchIntent.putExtra("fromAlarmService", true);
 
+        Bundle activityOptionsBundle = null;
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                android.app.ActivityOptions aOptions = android.app.ActivityOptions.makeBasic();
+                aOptions.setPendingIntentBackgroundActivityStartMode(
+                    android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                );
+                activityOptionsBundle = aOptions.toBundle();
+            } catch (Throwable ignored) {}
+        }
+
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        PendingIntent fullScreenIntent = PendingIntent.getActivity(
-            this, 1, launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        PendingIntent fullScreenIntent;
+        if (activityOptionsBundle != null) {
+            fullScreenIntent = PendingIntent.getActivity(
+                this, 1, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
+                activityOptionsBundle
+            );
+        } else {
+            fullScreenIntent = PendingIntent.getActivity(
+                this, 1, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+        }
 
         // Build foreground notification
         String taskText = "PUSHUP_MATH".equals(dismissalType)
@@ -230,6 +251,9 @@ public class AlarmService extends Service {
             startForeground(NOTIFICATION_ID, notification);
         }
 
+        // Seamlessly take over audio from receiver: stop direct playback before service playback starts
+        AlarmTriggerHandler.stopDirectPlayback();
+
         // Play alarm sound
         playAlarmSound();
 
@@ -275,9 +299,13 @@ public class AlarmService extends Service {
                 Log.w(TAG, "Could not adjust alarm stream volume", e);
             }
 
+            // Request audio focus on alarm stream
+            AlarmTriggerHandler.requestAlarmAudioFocus(this);
+
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
                 .build();
 
             int resId = getResources().getIdentifier("rise_alarm", "raw", getPackageName());
@@ -358,26 +386,24 @@ public class AlarmService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Rise Wake-Up Alarm",
-                NotificationManager.IMPORTANCE_HIGH
-            );
-            channel.setDescription("Urgent wake-up alarm sound and full-screen challenge");
-            channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 500, 200, 500, 200, 500});
-            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-            channel.setBypassDnd(true);
-
-            Uri alarmSoundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.rise_alarm);
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .build();
-            channel.setSound(alarmSoundUri, audioAttributes);
-
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
+                try {
+                    nm.deleteNotificationChannel("rise_alarm_channel_v1");
+                    nm.deleteNotificationChannel("rise_alarm_channel_v2");
+                } catch (Exception ignored) {}
+
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Rise Wake-Up Alarm",
+                    NotificationManager.IMPORTANCE_HIGH
+                );
+                channel.setDescription("Urgent wake-up alarm and full-screen challenge");
+                channel.enableVibration(true);
+                channel.setVibrationPattern(new long[]{0, 500, 200, 500, 200, 500});
+                channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                channel.setBypassDnd(true);
+                channel.setSound(null, null);
                 nm.createNotificationChannel(channel);
             }
         }
@@ -391,6 +417,7 @@ public class AlarmService extends Service {
         isServiceRunning = false;
 
         AlarmTriggerHandler.stopDirectPlayback();
+        AlarmTriggerHandler.abandonAlarmAudioFocus(context);
         AlarmTriggerHandler.releaseWakeLock();
 
         try {
@@ -542,6 +569,8 @@ public class AlarmService extends Service {
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
+
+        AlarmTriggerHandler.abandonAlarmAudioFocus(getApplicationContext());
 
         isServiceRunning = false;
     }

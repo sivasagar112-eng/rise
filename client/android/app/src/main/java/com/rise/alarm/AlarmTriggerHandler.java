@@ -32,13 +32,14 @@ import androidx.core.app.NotificationCompat;
  */
 public class AlarmTriggerHandler {
     private static final String TAG = "AlarmTriggerHandler";
-    public static final String NOTIFICATION_CHANNEL_ID = "rise_alarm_channel_v2";
+    public static final String NOTIFICATION_CHANNEL_ID = "rise_alarm_channel_v3";
     public static final int NOTIFICATION_ID = 999999;
 
     private static PowerManager.WakeLock cpuWakeLock;
     private static PowerManager.WakeLock screenWakeLock;
     private static MediaPlayer directPlayer;
     private static Vibrator directVibrator;
+    private static android.media.AudioFocusRequest alarmFocusRequest;
 
     /**
      * Check if alarm is actively ringing anywhere (direct player or service).
@@ -115,6 +116,52 @@ public class AlarmTriggerHandler {
         }
     }
 
+    public static synchronized void requestAlarmAudioFocus(Context context) {
+        try {
+            AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                .build();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (alarmFocusRequest == null) {
+                    alarmFocusRequest = new android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                        .setAudioAttributes(attributes)
+                        .setAcceptsDelayedFocusGain(false)
+                        .setWillPauseWhenDucked(false)
+                        .build();
+                }
+                am.requestAudioFocus(alarmFocusRequest);
+            } else {
+                am.requestAudioFocus(null, AudioManager.STREAM_ALARM, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            }
+            Log.d(TAG, "Audio focus acquired for alarm playback");
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to request audio focus", e);
+        }
+    }
+
+    public static synchronized void abandonAlarmAudioFocus(Context context) {
+        try {
+            AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && alarmFocusRequest != null) {
+                am.abandonAudioFocusRequest(alarmFocusRequest);
+                alarmFocusRequest = null;
+            } else {
+                am.abandonAudioFocus(null);
+            }
+            Log.d(TAG, "Audio focus abandoned");
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to abandon audio focus", e);
+        }
+    }
+
     /**
      * Start direct native MediaPlayer playback immediately in AlarmTriggerHandler.
      * This guarantees sound starts playing within milliseconds even if foreground
@@ -123,6 +170,9 @@ public class AlarmTriggerHandler {
     public static synchronized void startDirectPlayback(Context context) {
         try {
             stopDirectPlayback();
+
+            // Request transient audio focus on alarm stream
+            requestAlarmAudioFocus(context);
 
             // Ensure alarm audio volume is audible
             try {
@@ -142,6 +192,7 @@ public class AlarmTriggerHandler {
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
                 .build();
 
             int resId = context.getResources().getIdentifier("rise_alarm", "raw", context.getPackageName());
@@ -230,6 +281,7 @@ public class AlarmTriggerHandler {
         Log.d(TAG, "Stopping all alarm components");
         stopDirectPlayback();
         AlarmService.stopAlarmService(context);
+        abandonAlarmAudioFocus(context);
         releaseWakeLock();
 
         // Clear notifications
@@ -319,26 +371,27 @@ public class AlarmTriggerHandler {
         serviceIntent.putExtra("pushupTarget", pushupTarget);
         serviceIntent.putExtra("rampDuration", rampDuration);
 
-        // 4. Create Notification Channel with ALARM SOUND
+        // 4. Create Notification Channel (silent channel so native MediaPlayer exclusively handles looped volume-ramped playback)
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        Uri alarmSoundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + R.raw.rise_alarm);
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .build();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
+            // Delete legacy channels that played colliding sounds
+            try {
+                nm.deleteNotificationChannel("rise_alarm_channel_v1");
+                nm.deleteNotificationChannel("rise_alarm_channel_v2");
+            } catch (Exception ignored) {}
+
             NotificationChannel channel = new NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 "Rise Wake-Up Alarm",
                 NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Urgent wake-up alarm sound and full-screen challenge");
+            channel.setDescription("Urgent wake-up alarm and full-screen challenge");
             channel.enableVibration(true);
             channel.setVibrationPattern(new long[]{0, 500, 200, 500, 200, 500});
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             channel.setBypassDnd(true);
-            channel.setSound(alarmSoundUri, audioAttributes);
+            channel.setSound(null, null);
             nm.createNotificationChannel(channel);
         }
 
@@ -374,7 +427,7 @@ public class AlarmTriggerHandler {
             );
         }
 
-        // 6. Build and post Notification with full-screen intent and alarm sound
+        // 6. Build and post Notification with full-screen intent (sound managed exclusively by MediaPlayer)
         String taskText = "PUSHUP_MATH".equals(dismissalType)
             ? pushupTarget + " Pushups"
             : "CLICK_SHAKE".equals(dismissalType)
@@ -398,7 +451,6 @@ public class AlarmTriggerHandler {
             .setFullScreenIntent(fullScreenIntent, true)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setSound(alarmSoundUri, AudioManager.STREAM_ALARM)
             .build();
 
         if (nm != null) {

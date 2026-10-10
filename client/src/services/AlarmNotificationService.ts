@@ -3,7 +3,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Alarm } from '../types/alarm';
 import { formatTime12h } from '../utils/timeFormat';
 
-const CHANNEL_ID = 'rise_alarm_channel_v1';
+const CHANNEL_ID = 'rise_alarm_channel_v3';
 
 // Register the custom native plugin
 interface AlarmSchedulerPluginInterface {
