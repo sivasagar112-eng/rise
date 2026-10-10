@@ -332,7 +332,7 @@ public class AlarmService extends Service {
             }
 
             mediaPlayer.setLooping(true);
-            currentVolume = 0.1f;
+            currentVolume = 1.0f;
             mediaPlayer.setVolume(currentVolume, currentVolume);
             mediaPlayer.start();
 

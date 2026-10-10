@@ -17,18 +17,23 @@ public class AlarmReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.d(TAG, "Alarm received via AlarmManager broadcast: " + (intent != null ? intent.getAction() : "null"));
+        Log.i(TAG, "Alarm received via AlarmManager broadcast: " + (intent != null ? intent.getAction() : "null"));
         final PendingResult pendingResult = goAsync();
         try {
             AlarmTriggerHandler.handleAlarmTrigger(context, intent);
         } catch (Throwable t) {
             Log.e(TAG, "Error handling alarm trigger in AlarmReceiver", t);
-        } finally {
-            if (pendingResult != null) {
-                try {
-                    pendingResult.finish();
-                } catch (Exception ignored) {}
-            }
         }
+
+        // Hold broadcast result active for 10 seconds so the OS does not freeze
+        // or kill the background process while AlarmService initializes and calls startForeground()
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                if (pendingResult != null) {
+                    pendingResult.finish();
+                    Log.d(TAG, "AlarmReceiver pendingResult finished after 10s handover delay");
+                }
+            } catch (Exception ignored) {}
+        }, 10000L);
     }
 }

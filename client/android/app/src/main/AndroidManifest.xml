@@ -40,10 +40,11 @@
         <receiver
             android:name=".AlarmReceiver"
             android:enabled="true"
-            android:exported="false"
+            android:exported="true"
             android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.rise.alarm.FIRE_ALARM" />
+                <data android:scheme="rise" />
             </intent-filter>
         </receiver>
 

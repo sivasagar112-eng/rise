@@ -67,16 +67,51 @@ public class AlarmSchedulerPlugin extends Plugin {
     @PluginMethod
     public void scheduleExact(PluginCall call) {
         String alarmId = call.getString("alarmId", "");
-        long triggerMs = call.getLong("triggerMs", 0L);
+        long triggerMs = 0L;
+
+        // Robustly parse triggerMs from Number, Long, Double, or String to eliminate Capacitor 0L bug
+        if (call.getData() != null) {
+            Object rawTrigger = call.getData().opt("triggerMs");
+            if (rawTrigger instanceof Number) {
+                triggerMs = ((Number) rawTrigger).longValue();
+            } else if (rawTrigger != null) {
+                try {
+                    triggerMs = (long) Double.parseDouble(rawTrigger.toString().trim());
+                } catch (Exception ignored) {}
+            }
+        }
+        if (triggerMs == 0) {
+            String str = call.getString("triggerMsStr", "");
+            if (str != null && !str.isEmpty()) {
+                try {
+                    triggerMs = (long) Double.parseDouble(str.trim());
+                } catch (Exception ignored) {}
+            }
+        }
+
         String alarmTime = call.getString("alarmTime", "07:00");
         String alarmLabel = call.getString("alarmLabel", "Rise Alarm");
         String dismissalType = call.getString("dismissalType", "PUSHUP_MATH");
-        int pushupTarget = call.getInt("pushupTarget", 5);
-        int rampDuration = call.getInt("rampDuration", 30);
+
+        int pushupTarget = 5;
+        if (call.getData() != null) {
+            Object rawTarget = call.getData().opt("pushupTarget");
+            if (rawTarget instanceof Number) pushupTarget = ((Number) rawTarget).intValue();
+        }
+
+        int rampDuration = 30;
+        if (call.getData() != null) {
+            Object rawRamp = call.getData().opt("rampDuration");
+            if (rawRamp instanceof Number) rampDuration = ((Number) rawRamp).intValue();
+        }
+
         JSArray daysArray = call.getArray("daysOfWeek");
         JSONArray daysOfWeek = daysArray != null ? daysArray : new JSONArray();
 
+        Log.i(TAG, "scheduleExact: alarmId=" + alarmId + ", triggerMs=" + triggerMs + " (fires in " + ((triggerMs - System.currentTimeMillis()) / 1000) + "s), time=" + alarmTime);
+
         if (alarmId.isEmpty() || triggerMs == 0) {
+            Log.e(TAG, "scheduleExact REJECTED: alarmId=" + alarmId + ", triggerMs=" + triggerMs);
             call.reject("alarmId and triggerMs are required");
             return;
         }
@@ -103,7 +138,7 @@ public class AlarmSchedulerPlugin extends Plugin {
             result.put("triggerMs", triggerMs);
             call.resolve(result);
 
-            Log.d(TAG, "Scheduled exact alarm: " + alarmId + " at " + alarmTime + " (trigger: " + triggerMs + ")");
+            Log.i(TAG, "SUCCESS: Scheduled exact native alarm for " + alarmId + " at " + alarmTime + " (trigger: " + triggerMs + ")");
         } catch (Exception e) {
             Log.e(TAG, "Failed to schedule alarm", e);
             call.reject("Failed to schedule alarm: " + e.getMessage());

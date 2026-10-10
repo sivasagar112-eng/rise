@@ -200,6 +200,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }, 1500);
   };
 
+  const [testAlarmState, setTestAlarmState] = useState<string | null>(null);
+
+  const handleTestBackgroundAlarm = async () => {
+    setTestAlarmState('Scheduling…');
+    const success = await AlarmNotificationService.scheduleTestAlarm(15);
+    if (success) {
+      setTestAlarmState('Scheduled! Lock phone now');
+      alert('⏰ Test alarm scheduled to fire in 15 SECONDS!\n\nLock your phone or swipe the app from Recents right now to test.');
+    } else {
+      setTestAlarmState('Failed');
+      alert('Failed to schedule exact test alarm. Please ensure Exact Alarm permission is enabled.');
+    }
+    setTimeout(() => setTestAlarmState(null), 6000);
+  };
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
@@ -437,6 +452,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             >
               <Smartphone size={14} />
               <span>Allow Screen Pop</span>
+            </button>
+          </div>
+
+          {/* Test Background Alarm Row */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between bg-blue-500/5">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-blue-400">Test Background Alarm</p>
+              <p className="text-xs text-theme-subtext mt-0.5">
+                {testAlarmState || 'Rings in 15s (lock/swipe to test)'}
+              </p>
+            </div>
+            <button
+              onClick={handleTestBackgroundAlarm}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-500 transition-colors shadow-sm active:scale-95"
+            >
+              <Clock size={14} />
+              <span>{testAlarmState || 'Test in 15s'}</span>
             </button>
           </div>
         </div>

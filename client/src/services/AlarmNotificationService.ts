@@ -10,6 +10,7 @@ interface AlarmSchedulerPluginInterface {
   scheduleExact(options: {
     alarmId: string;
     triggerMs: number;
+    triggerMsStr?: string;
     alarmTime: string;
     alarmLabel: string;
     dismissalType: string;
@@ -366,6 +367,7 @@ export class AlarmNotificationService {
             await AlarmSchedulerNative.scheduleExact({
               alarmId: alarm.id,
               triggerMs: nextDate.getTime(),
+              triggerMsStr: String(nextDate.getTime()),
               alarmTime: alarm.time,
               alarmLabel: alarm.label || 'Rise Alarm',
               dismissalType: alarm.dismissalType,
@@ -507,5 +509,34 @@ export class AlarmNotificationService {
       }
     }
     return { canExact: true, canFullScreen: true, isBatteryIgnored: true, allGranted: true };
+  }
+
+  // Schedule a test alarm X seconds in the future to verify background execution
+  public static async scheduleTestAlarm(secondsFromNow = 15): Promise<boolean> {
+    const isNative = Capacitor.isNativePlatform();
+    const testDate = new Date(Date.now() + secondsFromNow * 1000);
+    const timeStr = `${String(testDate.getHours()).padStart(2, '0')}:${String(testDate.getMinutes()).padStart(2, '0')}`;
+
+    if (isNative) {
+      try {
+        await AlarmSchedulerNative.scheduleExact({
+          alarmId: `test-alarm-${Date.now()}`,
+          triggerMs: testDate.getTime(),
+          triggerMsStr: String(testDate.getTime()),
+          alarmTime: timeStr,
+          alarmLabel: 'Rise Test Alarm',
+          dismissalType: 'CLICK_SHAKE',
+          pushupTarget: 5,
+          rampDuration: 10,
+          daysOfWeek: [],
+        });
+        console.log(`[AlarmNotificationService] Test alarm scheduled for ${testDate.toLocaleTimeString()} (${secondsFromNow}s)`);
+        return true;
+      } catch (e) {
+        console.error('[AlarmNotificationService] Failed to schedule test alarm:', e);
+        return false;
+      }
+    }
+    return false;
   }
 }
