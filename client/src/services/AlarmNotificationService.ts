@@ -73,10 +73,20 @@ export interface AlarmSchedulerPluginInterface {
 
   requestBatteryOptimizationExemption(): Promise<{ success: boolean }>;
 
+  canDrawOverlays(): Promise<{ canDraw: boolean }>;
+
+  requestOverlayPermission(): Promise<{ success: boolean }>;
+
+  openOemSettings(): Promise<{ success: boolean; launchedOem: boolean; manufacturer: string }>;
+
+  autoConfigureReliability(): Promise<{ success: boolean; action: string; message: string }>;
+
   getBackgroundPermissionStatus(): Promise<{
     canExact: boolean;
     canFullScreen: boolean;
     isBatteryIgnored: boolean;
+    canDrawOverlays: boolean;
+    manufacturer: string;
     allGranted: boolean;
   }>;
 
@@ -585,11 +595,61 @@ export class AlarmNotificationService {
     }
   }
 
+  // Check whether Display Over Other Apps (Overlay) is allowed
+  public static async canDrawOverlays(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.canDrawOverlays();
+        return Boolean(res?.canDraw);
+      } catch (e) {
+        console.warn('[AlarmNotificationService] canDrawOverlays error:', e);
+      }
+    }
+    return true;
+  }
+
+  // Request Display Over Other Apps (Overlay) permission
+  public static async requestOverlayPermission(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.requestOverlayPermission();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] requestOverlayPermission error:', e);
+      }
+    }
+  }
+
+  // Open OEM specific settings for Realme, Xiaomi, Oppo, Vivo, Samsung
+  public static async openOemSettings(): Promise<{ success: boolean; launchedOem: boolean; manufacturer: string }> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        return await AlarmSchedulerNative.openOemSettings();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] openOemSettings error:', e);
+      }
+    }
+    return { success: false, launchedOem: false, manufacturer: 'generic' };
+  }
+
+  // 1-Tap automatic configuration that steps through the missing permissions
+  public static async autoConfigureReliability(): Promise<{ success: boolean; action: string; message: string }> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        return await AlarmSchedulerNative.autoConfigureReliability();
+      } catch (e) {
+        console.error('[AlarmNotificationService] autoConfigureReliability error:', e);
+      }
+    }
+    return { success: true, action: 'ALL_CONFIGURED', message: 'All configured' };
+  }
+
   // Check aggregate background reliability permission status
   public static async getBackgroundPermissionStatus(): Promise<{
     canExact: boolean;
     canFullScreen: boolean;
     isBatteryIgnored: boolean;
+    canDrawOverlays: boolean;
+    manufacturer: string;
     allGranted: boolean;
   }> {
     if (Capacitor.isNativePlatform()) {
@@ -599,7 +659,14 @@ export class AlarmNotificationService {
         console.warn('[AlarmNotificationService] getBackgroundPermissionStatus error:', e);
       }
     }
-    return { canExact: true, canFullScreen: true, isBatteryIgnored: true, allGranted: true };
+    return {
+      canExact: true,
+      canFullScreen: true,
+      isBatteryIgnored: true,
+      canDrawOverlays: true,
+      manufacturer: 'generic',
+      allGranted: true,
+    };
   }
 
   // Schedule a test alarm X seconds in the future to verify background execution

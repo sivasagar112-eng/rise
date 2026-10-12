@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StorageService } from '../../services/StorageService';
 import { synth } from '../../services/WebAudioSynth';
 import { api } from '../../api/client';
-import { Sun, Moon, Volume2, ShieldCheck, LogOut, AlertCircle, X, Music, Bell, Camera, Clock, Smartphone } from 'lucide-react';
+import { Sun, Moon, Volume2, ShieldCheck, LogOut, AlertCircle, X, Music, Bell, Camera, Clock, Smartphone, Zap, CheckCircle2 } from 'lucide-react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { AlarmNotificationService } from '../../services/AlarmNotificationService';
 
@@ -32,11 +32,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [batteryStatus, setBatteryStatus] = useState<string>('Checking…');
   const [exactAlarmStatus, setExactAlarmStatus] = useState<string>('Checking…');
   const [fullScreenStatus, setFullScreenStatus] = useState<string>('Checking…');
+  const [overlayStatus, setOverlayStatus] = useState<string>('Checking…');
+  const [manufacturer, setManufacturer] = useState<string>('');
+  const [autoConfiguring, setAutoConfiguring] = useState<boolean>(false);
+  const [allReliabilityReady, setAllReliabilityReady] = useState<boolean>(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [notificationTesting, setNotificationTesting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const testVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const testStreamRef = React.useRef<MediaStream | null>(null);
+
+  const refreshPermissions = React.useCallback(async () => {
+    try {
+      const perm = await LocalNotifications.checkPermissions();
+      if (perm.display === 'granted') {
+        setNotificationStatus('Granted ✓');
+      }
+
+      const status = await AlarmNotificationService.getBackgroundPermissionStatus();
+      setBatteryStatus(status.isBatteryIgnored ? 'Unrestricted ✓' : 'Optimized ⚠️');
+      setExactAlarmStatus(status.canExact ? 'Allowed ✓' : 'Disabled ⚠️');
+      setFullScreenStatus(status.canFullScreen ? 'Allowed ✓' : 'Disabled ⚠️');
+      setOverlayStatus(status.canDrawOverlays ? 'Allowed ✓' : 'Disabled ⚠️');
+      setManufacturer(status.manufacturer ? status.manufacturer.charAt(0).toUpperCase() + status.manufacturer.slice(1).toLowerCase() : '');
+      setAllReliabilityReady(status.allGranted);
+    } catch (e) {
+      console.warn('Error probing permissions:', e);
+    }
+  }, []);
 
   // Probe hardware and permission status on mount
   React.useEffect(() => {
@@ -49,24 +72,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       }).catch(() => {});
     }
 
-    LocalNotifications.checkPermissions().then((perm) => {
-      if (perm.display === 'granted') {
-        setNotificationStatus('Granted ✓');
-      }
-    }).catch(() => {});
-
-    AlarmNotificationService.isBatteryOptimizationIgnored().then((ignored) => {
-      setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
-    }).catch(() => {});
-
-    AlarmNotificationService.canScheduleExactAlarms().then((can) => {
-      setExactAlarmStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
-    }).catch(() => {});
-
-    AlarmNotificationService.canUseFullScreenIntent().then((can) => {
-      setFullScreenStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
-    }).catch(() => {});
-  }, []);
+    refreshPermissions();
+  }, [refreshPermissions]);
 
   const handlePickRingtone = () => {
     fileInputRef.current?.click();
@@ -176,27 +183,52 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
+  const handleAutoConfigureReliability = async () => {
+    setAutoConfiguring(true);
+    try {
+      await AlarmNotificationService.autoConfigureReliability();
+      setTimeout(async () => {
+        await refreshPermissions();
+        setAutoConfiguring(false);
+      }, 1500);
+    } catch (e) {
+      console.error('autoConfigureReliability error:', e);
+      setAutoConfiguring(false);
+    }
+  };
+
   const handleRequestBatteryExemption = async () => {
     await AlarmNotificationService.requestBatteryOptimizationExemption();
     setTimeout(async () => {
-      const ignored = await AlarmNotificationService.isBatteryOptimizationIgnored();
-      setBatteryStatus(ignored ? 'Unrestricted ✓' : 'Optimized ⚠️');
+      await refreshPermissions();
     }, 1500);
   };
 
   const handleRequestExactAlarm = async () => {
     await AlarmNotificationService.requestExactAlarmPermission();
     setTimeout(async () => {
-      const can = await AlarmNotificationService.canScheduleExactAlarms();
-      setExactAlarmStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
+      await refreshPermissions();
     }, 1500);
   };
 
   const handleRequestFullScreen = async () => {
     await AlarmNotificationService.requestFullScreenIntentPermission();
     setTimeout(async () => {
-      const can = await AlarmNotificationService.canUseFullScreenIntent();
-      setFullScreenStatus(can ? 'Granted ✓' : 'Disabled ⚠️');
+      await refreshPermissions();
+    }, 1500);
+  };
+
+  const handleRequestOverlay = async () => {
+    await AlarmNotificationService.requestOverlayPermission();
+    setTimeout(async () => {
+      await refreshPermissions();
+    }, 1500);
+  };
+
+  const handleOpenOemSettings = async () => {
+    await AlarmNotificationService.openOemSettings();
+    setTimeout(async () => {
+      await refreshPermissions();
     }, 1500);
   };
 
@@ -379,6 +411,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </p>
           </div>
 
+          {/* 1-Tap Auto Setup Banner */}
+          {allReliabilityReady ? (
+            <div className="p-3 mx-4 my-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center space-x-2.5">
+              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-emerald-300">All Background Permissions Ready ✓</p>
+                <p className="text-[10px] text-theme-subtext mt-0.5">Alarms will wake the screen and ring even when your phone is locked or asleep.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 mx-4 my-2 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 border border-amber-500/30 flex items-center justify-between">
+              <div className="flex-1 mr-3">
+                <div className="flex items-center space-x-1.5">
+                  <Zap size={15} className="text-amber-400 fill-amber-400" />
+                  <p className="text-xs font-bold text-amber-300">
+                    1-Tap Auto Setup {manufacturer ? `(${manufacturer})` : ''}
+                  </p>
+                </div>
+                <p className="text-[11px] text-theme-subtext mt-0.5 leading-snug">
+                  Automatically configure battery unrestricted, exact alarms &amp; screen popups.
+                </p>
+              </div>
+              <button
+                onClick={handleAutoConfigureReliability}
+                disabled={autoConfiguring}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 text-black text-xs font-bold shadow-md hover:bg-amber-400 transition-transform active:scale-95 disabled:opacity-50 whitespace-nowrap"
+              >
+                {autoConfiguring ? 'Setting up…' : '1-Tap Fix'}
+              </button>
+            </div>
+          )}
+
           {/* Camera Row */}
           <div className="px-4 py-3 flex items-center justify-between">
             <div>
@@ -425,6 +489,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </button>
           </div>
 
+          {/* Display Over Other Apps / Pop-up Windows */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-theme-text">Display Over Other Apps</p>
+              <p className="text-xs text-theme-subtext mt-0.5">Pop-up Windows: {overlayStatus}</p>
+            </div>
+            <button
+              onClick={handleRequestOverlay}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-theme-border bg-theme-bg text-theme-text text-sm font-semibold hover:bg-theme-border/30 transition-colors"
+            >
+              <Smartphone size={14} />
+              <span>Allow Overlay</span>
+            </button>
+          </div>
+
           {/* Exact Alarm Permission */}
           <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
             <div className="max-w-[210px]">
@@ -452,6 +531,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             >
               <Smartphone size={14} />
               <span>Allow Screen Pop</span>
+            </button>
+          </div>
+
+          {/* OEM Specific Auto-Start & Power Row */}
+          <div className="px-4 py-3 border-t border-theme-border/50 flex items-center justify-between">
+            <div className="max-w-[210px]">
+              <p className="text-sm font-bold text-theme-text">
+                {manufacturer ? `${manufacturer} Auto-Start & Power` : 'Device OEM Settings'}
+              </p>
+              <p className="text-xs text-theme-subtext mt-0.5">Allow background run &amp; popups</p>
+            </div>
+            <button
+              onClick={handleOpenOemSettings}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-theme-border bg-theme-bg text-theme-text text-sm font-semibold hover:bg-theme-border/30 transition-colors"
+            >
+              <Smartphone size={14} />
+              <span>Open {manufacturer || 'OEM'} Settings</span>
             </button>
           </div>
 

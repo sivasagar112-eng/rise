@@ -3,6 +3,7 @@ package com.rise.alarm
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -590,6 +591,141 @@ class AlarmSchedulerPlugin : Plugin() {
     }
 
     /**
+     * Check whether Display Over Other Apps / Overlay permission is granted.
+     */
+    @PluginMethod
+    fun canDrawOverlays(call: PluginCall) {
+        val result = JSObject()
+        val canDraw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+        result.put("canDraw", canDraw)
+        call.resolve(result)
+    }
+
+    /**
+     * Request Display Over Other Apps / Overlay permission.
+     */
+    @PluginMethod
+    fun requestOverlayPermission(call: PluginCall) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot launch ACTION_MANAGE_OVERLAY_PERMISSION", e)
+                try {
+                    val appDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(appDetails)
+                } catch (ignored: Exception) {}
+            }
+        }
+        val result = JSObject().apply { put("success", true) }
+        call.resolve(result)
+    }
+
+    /**
+     * Open manufacturer-specific settings (Realme, Xiaomi, Oppo, Vivo, Samsung).
+     */
+    @PluginMethod
+    fun openOemSettings(call: PluginCall) {
+        val launched = launchOemSpecificSettings(context)
+        val result = JSObject().apply {
+            put("success", true)
+            put("launchedOem", launched)
+            put("manufacturer", Build.MANUFACTURER)
+        }
+        call.resolve(result)
+    }
+
+    /**
+     * Automatically orchestrate the missing background permissions in priority order:
+     * 1. Battery Saver -> Unrestricted (native OS dialog)
+     * 2. Exact Alarms -> Allowed (settings toggle)
+     * 3. Display Over Other Apps -> Allowed (overlay toggle)
+     * 4. OEM Auto-start / Background pop-up window manager
+     */
+    @PluginMethod
+    fun autoConfigureReliability(call: PluginCall) {
+        val result = JSObject()
+
+        // 1. Battery Optimization (Unrestricted)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    result.put("action", "BATTERY_PROMPT")
+                    result.put("message", "Battery Optimization prompt requested")
+                    result.put("success", true)
+                    call.resolve(result)
+                    return
+                } catch (e: Exception) {
+                    Log.w(TAG, "Battery intent failed in autoConfigureReliability", e)
+                }
+            }
+        }
+
+        // 2. Exact Alarms (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            if (am != null && !am.canScheduleExactAlarms()) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    result.put("action", "EXACT_ALARM")
+                    result.put("message", "Opening Exact Alarms settings")
+                    result.put("success", true)
+                    call.resolve(result)
+                    return
+                } catch (e: Exception) {
+                    Log.w(TAG, "Exact alarm intent failed in autoConfigureReliability", e)
+                }
+            }
+        }
+
+        // 3. Display Over Other Apps (Overlay)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                result.put("action", "OVERLAY")
+                result.put("message", "Opening Display Over Other Apps settings")
+                result.put("success", true)
+                call.resolve(result)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay intent failed in autoConfigureReliability", e)
+            }
+        }
+
+        // 4. OEM Auto-Start / Background management for Realme, Xiaomi, Oppo, Vivo, Samsung
+        val oemLaunched = launchOemSpecificSettings(context)
+        result.put("action", if (oemLaunched) "OEM_SETTINGS" else "ALL_CONFIGURED")
+        result.put("message", if (oemLaunched) "Opened OEM settings for ${Build.MANUFACTURER}" else "All settings already configured")
+        result.put("success", true)
+        call.resolve(result)
+    }
+
+    /**
      * Aggregate background reliability permission status.
      */
     @PluginMethod
@@ -613,10 +749,18 @@ class AlarmSchedulerPlugin : Plugin() {
             isBatteryIgnored = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
         }
 
+        val canDrawOverlays = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+
         result.put("canExact", canExact)
         result.put("canFullScreen", canFullScreen)
         result.put("isBatteryIgnored", isBatteryIgnored)
-        result.put("allGranted", canExact && canFullScreen && isBatteryIgnored)
+        result.put("canDrawOverlays", canDrawOverlays)
+        result.put("manufacturer", Build.MANUFACTURER)
+        result.put("allGranted", canExact && canFullScreen && isBatteryIgnored && canDrawOverlays)
         call.resolve(result)
     }
 
@@ -747,6 +891,86 @@ class AlarmSchedulerPlugin : Plugin() {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, jsonStr).apply()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to remove alarm from prefs", e)
+        }
+    }
+
+    private fun launchOemSpecificSettings(context: Context): Boolean {
+        val pkg = context.packageName
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        val intents = mutableListOf<Intent>()
+
+        if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco")) {
+            // Xiaomi MIUI / HyperOS
+            intents.add(Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                putExtra("extra_pkgname", pkg)
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                putExtra("extra_pkgname", pkg)
+            })
+        } else if (manufacturer.contains("oppo") || manufacturer.contains("realme") || manufacturer.contains("oneplus")) {
+            // Realme UI / ColorOS / OxygenOS
+            intents.add(Intent().apply {
+                component = ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.PermissionManagerActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")
+            })
+        } else if (manufacturer.contains("vivo") || manufacturer.contains("iqoo")) {
+            // Vivo / iQOO
+            intents.add(Intent().apply {
+                component = ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")
+            })
+        } else if (manufacturer.contains("samsung")) {
+            // Samsung One UI
+            intents.add(Intent().apply {
+                component = ComponentName("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")
+            })
+        } else if (manufacturer.contains("huawei") || manufacturer.contains("honor")) {
+            // Huawei / Honor
+            intents.add(Intent().apply {
+                component = ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")
+            })
+            intents.add(Intent().apply {
+                component = ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")
+            })
+        }
+
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                Log.d(TAG, "Successfully launched OEM intent: ${intent.component ?: intent.action}")
+                return true
+            } catch (ignored: Exception) {}
+        }
+
+        // Fallback: App Details Settings
+        try {
+            val appDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$pkg")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(appDetails)
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback app details settings failed", e)
+            return false
         }
     }
 }

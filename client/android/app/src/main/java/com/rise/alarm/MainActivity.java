@@ -28,6 +28,7 @@ public class MainActivity extends BridgeActivity {
     private PermissionRequest pendingPermissionRequest = null;
 
     private NetworkMonitor.NetworkStatusListener networkListener;
+    private boolean hasPromptedBatteryThisSession = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,6 +50,14 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         configureScreenAndKeyguard();
         setupWebViewPermissionHandler();
+        checkAndPromptBatteryIfMissing();
+    }
+
+    private void checkAndPromptBatteryIfMissing() {
+        if (hasPromptedBatteryThisSession) return;
+        hasPromptedBatteryThisSession = true;
+        // Post delayed so UI is completely rendered before prompt displays
+        new Handler(Looper.getMainLooper()).postDelayed(this::requestBatteryOptimizationExemption, 1200);
     }
 
     private void setupWebViewPermissionHandler() {

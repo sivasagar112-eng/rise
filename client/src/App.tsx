@@ -11,7 +11,7 @@ import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
-import { BellOff, ShieldAlert, ChevronRight } from 'lucide-react';
+import { BellOff, ShieldAlert } from 'lucide-react';
 import { AlarmNotificationService } from './services/AlarmNotificationService';
 
 // Lazy-load heavy screens to make initial app launch near instantaneous
@@ -264,19 +264,30 @@ export const App: React.FC = () => {
             {/* Background Reliability Alert Banner */}
             {!backgroundReady && (
               <div
-                onClick={() => setIsSettingsOpen(true)}
-                className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
+                className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between"
               >
-                <div className="flex items-center space-x-3">
+                <div
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="flex items-center space-x-3 flex-1 cursor-pointer mr-2"
+                >
                   <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
                     <ShieldAlert size={18} />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-amber-200">Background Ringing Setup Needed</p>
-                    <p className="text-[11px] text-amber-300/80">Tap to allow alarms when phone is locked or closed</p>
+                    <p className="text-[11px] text-amber-300/80">Tap to allow alarms when phone is locked</p>
                   </div>
                 </div>
-                <ChevronRight size={16} className="text-amber-400 shrink-0" />
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await AlarmNotificationService.autoConfigureReliability();
+                    setTimeout(checkBackgroundStatus, 1500);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold shadow hover:bg-amber-400 active:scale-95 transition-transform shrink-0"
+                >
+                  Auto-Fix
+                </button>
               </div>
             )}
 
