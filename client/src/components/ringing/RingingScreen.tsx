@@ -64,11 +64,10 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
   onDismissVerified,
 }) => {
   const [effectiveDismissalType] = useState<DismissalType>(() => {
-    if (!alarm.dismissalType || alarm.dismissalType === 'RANDOM') {
-      const tasks: DismissalType[] = ['PUSHUP_MATH', 'OBJECT_MATCH', 'MATH', 'BRIGHTNESS', 'CLICK_SHAKE'];
-      return tasks[Math.floor(Math.random() * tasks.length)];
+    if (alarm.dismissalType && alarm.dismissalType !== 'RANDOM') {
+      return alarm.dismissalType;
     }
-    return alarm.dismissalType;
+    return 'PUSHUP_MATH';
   });
 
   const handleAllTasksDone = React.useCallback(() => {

@@ -40,13 +40,13 @@ public class AlarmService extends Service {
     public static volatile boolean isServiceRunning = false;
     private static volatile boolean isExplicitlyStopped = false;
 
-    private static final String PREF_ACTIVE_ALARM = "rise_active_alarm_state";
-    private static final String KEY_ALARM_ID = "active_alarm_id";
-    private static final String KEY_ALARM_TIME = "active_alarm_time";
-    private static final String KEY_ALARM_LABEL = "active_alarm_label";
-    private static final String KEY_DISMISSAL_TYPE = "active_dismissal_type";
-    private static final String KEY_PUSHUP_TARGET = "active_pushup_target";
-    private static final String KEY_RAMP_DURATION = "active_ramp_duration";
+    public static final String PREF_ACTIVE_ALARM = "rise_active_alarm_state";
+    public static final String KEY_ALARM_ID = "active_alarm_id";
+    public static final String KEY_ALARM_TIME = "active_alarm_time";
+    public static final String KEY_ALARM_LABEL = "active_alarm_label";
+    public static final String KEY_DISMISSAL_TYPE = "active_dismissal_type";
+    public static final String KEY_PUSHUP_TARGET = "active_pushup_target";
+    public static final String KEY_RAMP_DURATION = "active_ramp_duration";
 
     private String currentAlarmId;
     private String currentAlarmTime;
@@ -71,13 +71,6 @@ public class AlarmService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "com.rise.alarm.ACTION_STOP_ALARM".equals(intent.getAction())) {
-            Log.d(TAG, "Received ACTION_STOP_ALARM via Notification Action");
-            stopAlarmService(this);
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-
         String alarmId = null;
         String alarmTime = null;
         String alarmLabel = null;
@@ -225,13 +218,6 @@ public class AlarmService extends Service {
             ? "Solve Math Puzzles"
             : dismissalType != null ? dismissalType.replace("_", " ") : "Wake-Up Challenge";
 
-        Intent stopIntent = new Intent(this, AlarmService.class);
-        stopIntent.setAction("com.rise.alarm.ACTION_STOP_ALARM");
-        PendingIntent stopPendingIntent = PendingIntent.getService(
-            this, 9991, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("⏰ Rise — " + formatTime12h(alarmTime))
             .setContentText("Wake up! Complete: " + taskText)
@@ -242,7 +228,6 @@ public class AlarmService extends Service {
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(fullScreenIntent, true)
             .addAction(0, "Start Challenge", pendingIntent)
-            .addAction(0, "Dismiss", stopPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
             .build();

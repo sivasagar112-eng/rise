@@ -40,7 +40,6 @@ public class MainActivity extends BridgeActivity {
 
         setupWebViewPermissionHandler();
         configureScreenAndKeyguard();
-        requestCameraFirst();
         initNetworkMonitoring();
         handleAlarmIntent(getIntent());
     }
@@ -50,7 +49,6 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         configureScreenAndKeyguard();
         setupWebViewPermissionHandler();
-        checkAndPromptBatteryIfMissing();
     }
 
     private void checkAndPromptBatteryIfMissing() {
@@ -184,11 +182,28 @@ public class MainActivity extends BridgeActivity {
         int pushupTarget = intent.getIntExtra("pushupTarget", 5);
         int rampDuration = intent.getIntExtra("rampDuration", 30);
 
-        // Task configuration fallback handling with explicit logging
+        // Task configuration: recover concrete task from pending data or active alarm prefs if intent extra was RANDOM or missing
+        com.getcapacitor.JSObject pending = AlarmSchedulerPlugin.getPendingAlarmData();
+        if ((dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) && pending != null) {
+            String pendingType = pending.optString("dismissalType", null);
+            if (pendingType != null && !pendingType.trim().isEmpty() && !"RANDOM".equalsIgnoreCase(pendingType)) {
+                dismissalType = pendingType;
+                Log.d(TAG, "handleAlarmIntent: recovered concrete dismissalType from pending: " + dismissalType);
+            }
+        }
+        if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
+            android.content.SharedPreferences actPrefs = getSharedPreferences(AlarmService.PREF_ACTIVE_ALARM, Context.MODE_PRIVATE);
+            String savedType = actPrefs.getString(AlarmService.KEY_DISMISSAL_TYPE, null);
+            if (savedType != null && !savedType.trim().isEmpty() && !"RANDOM".equalsIgnoreCase(savedType)) {
+                dismissalType = savedType;
+                Log.d(TAG, "handleAlarmIntent: recovered concrete dismissalType from active alarm prefs: " + dismissalType);
+            }
+        }
+
         if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
             String[] tasks = {"PUSHUP_MATH", "OBJECT_MATCH", "MATH", "BRIGHTNESS", "CLICK_SHAKE"};
             dismissalType = tasks[new java.util.Random().nextInt(tasks.length)];
-            Log.d(TAG, "handleAlarmIntent: dismissalType resolved to random task: " + dismissalType);
+            Log.d(TAG, "handleAlarmIntent: fallback dismissalType resolved to: " + dismissalType);
         }
         if (pushupTarget <= 0) {
             Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 5");
@@ -307,11 +322,6 @@ public class MainActivity extends BridgeActivity {
                     pendingPermissionRequest = null;
                 }
             }
-            // Once Camera dialog is answered, immediately prompt for Notifications
-            requestNotificationSecond();
-        } else if (requestCode == NOTIFICATION_PERMISSION_CODE) {
-            // Once Notification dialog is answered, prompt for Battery Optimization
-            requestBatteryOptimizationExemption();
         }
     }
 }

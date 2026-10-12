@@ -174,13 +174,8 @@ export class AlarmNotificationService {
             actions: [
               {
                 id: 'start_challenge',
-                title: 'Start',
+                title: 'Start Challenge',
                 foreground: true,
-              },
-              {
-                id: 'dismiss_alarm',
-                title: 'Dismiss',
-                destructive: true,
               },
             ],
           },
@@ -241,8 +236,12 @@ export class AlarmNotificationService {
     }
   }
 
-  // Show immediate floating heads-up banner when alarm starts firing
+  // Show immediate floating heads-up banner when alarm starts firing (web / fallback)
   public static async showRingingNotification(alarm: Alarm): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      // On native Android, AlarmService is the authoritative foreground notification with the exact task
+      return;
+    }
     try {
       const taskText =
         alarm.dismissalType === 'PUSHUP_MATH'

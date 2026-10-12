@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Alarm, DismissalType } from '../types/alarm';
 import { synth } from '../services/WebAudioSynth';
-import { AlarmNotificationService } from '../services/AlarmNotificationService';
+import { AlarmNotificationService, AlarmSchedulerNative } from '../services/AlarmNotificationService';
 import { StorageService } from '../services/StorageService';
 
 const TASK_POOL: DismissalType[] = [
@@ -151,9 +151,28 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
           return;
         }
 
-        const nativeDismissal = typeof triggerData === 'object' ? triggerData?.dismissalType : undefined;
-        console.log('[useAlarmScheduler] Triggering matched alarm from native event:', match.id, 'with nativeDismissal:', nativeDismissal);
-        triggerAlarm(match, true /* fromNative */, nativeDismissal);
+        let nativeDismissal = typeof triggerData === 'object' ? triggerData?.dismissalType : undefined;
+        if ((!nativeDismissal || nativeDismissal === 'RANDOM') && Capacitor.isNativePlatform()) {
+          AlarmSchedulerNative.getPendingAlarm().then((res) => {
+            if (res?.alarm?.dismissalType && res.alarm.dismissalType !== 'RANDOM') {
+              nativeDismissal = res.alarm.dismissalType;
+            }
+            const finalMatch = (nativeDismissal && nativeDismissal !== 'RANDOM')
+              ? { ...match, dismissalType: nativeDismissal as DismissalType }
+              : match;
+            console.log('[useAlarmScheduler] Triggering matched alarm with verified task:', finalMatch.id, nativeDismissal);
+            triggerAlarm(finalMatch, true /* fromNative */, nativeDismissal);
+          }).catch(() => {
+            triggerAlarm(match, true /* fromNative */, nativeDismissal);
+          });
+          return;
+        }
+
+        const finalMatch = (nativeDismissal && nativeDismissal !== 'RANDOM')
+          ? { ...match, dismissalType: nativeDismissal as DismissalType }
+          : match;
+        console.log('[useAlarmScheduler] Triggering matched alarm from native event:', finalMatch.id, 'with nativeDismissal:', nativeDismissal);
+        triggerAlarm(finalMatch, true /* fromNative */, nativeDismissal);
       } else {
         console.error('[useAlarmScheduler] Failed to find or construct alarm for ID:', alarmId);
       }

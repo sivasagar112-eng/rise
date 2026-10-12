@@ -338,6 +338,19 @@ public class AlarmTriggerHandler {
         // Store pending alarm data into plugin so WebView can immediately pull it on cold start
         AlarmSchedulerPlugin.setPendingAlarm(alarmId, alarmTime, alarmLabel, dismissalType, pushupTarget, rampDuration);
 
+        // Also persist active alarm details for AlarmService restoration and task consistency
+        try {
+            android.content.SharedPreferences actPrefs = context.getSharedPreferences(AlarmService.PREF_ACTIVE_ALARM, Context.MODE_PRIVATE);
+            actPrefs.edit()
+                .putString(AlarmService.KEY_ALARM_ID, alarmId)
+                .putString(AlarmService.KEY_ALARM_TIME, alarmTime)
+                .putString(AlarmService.KEY_ALARM_LABEL, alarmLabel)
+                .putString(AlarmService.KEY_DISMISSAL_TYPE, dismissalType)
+                .putInt(AlarmService.KEY_PUSHUP_TARGET, pushupTarget)
+                .putInt(AlarmService.KEY_RAMP_DURATION, rampDuration)
+                .apply();
+        } catch (Exception ignored) {}
+
         // 1. Hold CPU wake lock immediately to prevent sleep
         acquireWakeLock(context);
 
