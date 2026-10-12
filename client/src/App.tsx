@@ -11,15 +11,16 @@ import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
-import { BellOff, ShieldAlert } from 'lucide-react';
+import { BellOff, ShieldAlert, X } from 'lucide-react';
 import { AlarmNotificationService } from './services/AlarmNotificationService';
+import { App as CapApp } from '@capacitor/app';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Lazy-load heavy screens to make initial app launch near instantaneous
 const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal').then((m) => ({ default: m.AlarmEditorModal })));
 const RingingScreen = lazy(() => import('./components/ringing/RingingScreen').then((m) => ({ default: m.RingingScreen })));
 const ProfileScreen = lazy(() => import('./components/profile/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
 const SettingsScreen = lazy(() => import('./components/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
-const CameraPermissionModal = lazy(() => import('./components/onboarding/CameraPermissionModal').then((m) => ({ default: m.CameraPermissionModal })));
 
 export const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -31,14 +32,26 @@ export const App: React.FC = () => {
   const [editingAlarm, setEditingAlarm] = useState<Alarm | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(!StorageService.hasSeenOnboarding());
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
+    return localStorage.getItem('rise_bg_banner_dismissed') === 'true';
+  });
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [backgroundReady, setBackgroundReady] = useState<boolean>(true);
+
+  // Directly prompt notification permission once on very first launch (no double-asking in-app modal)
+  useEffect(() => {
+    if (!StorageService.hasSeenOnboarding()) {
+      StorageService.markOnboardingDone();
+      LocalNotifications.requestPermissions().catch(() => {});
+    }
+  }, []);
 
   const checkBackgroundStatus = React.useCallback(async () => {
     try {
       const status = await AlarmNotificationService.getBackgroundPermissionStatus();
-      setBackgroundReady(status.allGranted);
+      // If user enabled display over apps (canDrawOverlays) or allGranted is true, background ringing is ready!
+      const ready = Boolean(status.canDrawOverlays || status.allGranted);
+      setBackgroundReady(ready);
     } catch {
       setBackgroundReady(true);
     }
@@ -46,8 +59,26 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     checkBackgroundStatus();
-    window.addEventListener('focus', checkBackgroundStatus);
-    return () => window.removeEventListener('focus', checkBackgroundStatus);
+
+    const onResume = () => {
+      checkBackgroundStatus();
+    };
+
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') onResume();
+    });
+
+    const listenerPromise = CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        onResume();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('focus', onResume);
+      listenerPromise.then((handle) => handle.remove()).catch(() => {});
+    };
   }, [checkBackgroundStatus]);
 
   const showToast = React.useCallback((text: string, icon: 'clock' | 'info' = 'clock') => {
@@ -83,8 +114,8 @@ export const App: React.FC = () => {
     }, []),
     isSettingsOpen,
     closeSettings: React.useCallback(() => setIsSettingsOpen(false), []),
-    showOnboarding,
-    closeOnboarding: React.useCallback(() => setShowOnboarding(false), []),
+    showOnboarding: false,
+    closeOnboarding: React.useCallback(() => {}, []),
     activeTab,
     setActiveTab,
     showToast,
@@ -262,7 +293,7 @@ export const App: React.FC = () => {
         {activeTab === 'ALARM' && (
           <div className="animate-fade-in space-y-1">
             {/* Background Reliability Alert Banner */}
-            {!backgroundReady && (
+            {!backgroundReady && !bannerDismissed && (
               <div
                 className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between"
               >
@@ -278,16 +309,29 @@ export const App: React.FC = () => {
                     <p className="text-[11px] text-amber-300/80">Tap to allow alarms when phone is locked</p>
                   </div>
                 </div>
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    await AlarmNotificationService.autoConfigureReliability();
-                    setTimeout(checkBackgroundStatus, 1500);
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold shadow hover:bg-amber-400 active:scale-95 transition-transform shrink-0"
-                >
-                  Auto-Fix
-                </button>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await AlarmNotificationService.requestOverlayPermission();
+                      setTimeout(checkBackgroundStatus, 1500);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold shadow hover:bg-amber-400 active:scale-95 transition-transform"
+                  >
+                    Auto-Fix
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBannerDismissed(true);
+                      localStorage.setItem('rise_bg_banner_dismissed', 'true');
+                    }}
+                    className="p-1.5 rounded-lg text-amber-300/60 hover:text-amber-200 hover:bg-white/5 transition-colors"
+                    title="Dismiss"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -390,12 +434,7 @@ export const App: React.FC = () => {
         </Suspense>
       )}
 
-      {/* First Launch Camera Permission Explainer */}
-      {showOnboarding && (
-        <Suspense fallback={null}>
-          <CameraPermissionModal onDismiss={() => setShowOnboarding(false)} />
-        </Suspense>
-      )}
+
 
       {/* Next Alarm Countdown Toast Pill (Floating at Bottom) */}
       <NextAlarmToast toast={toast} onDismiss={() => setToast(null)} />

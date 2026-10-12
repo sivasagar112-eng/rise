@@ -680,7 +680,25 @@ class AlarmSchedulerPlugin : Plugin() {
     fun autoConfigureReliability(call: PluginCall) {
         val result = JSObject()
 
-        // 1. Battery Optimization (Unrestricted)
+        // 1. Display Over Other Apps (Overlay) - required to wake and show screen when locked
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                result.put("action", "OVERLAY")
+                result.put("message", "Opening Display Over Other Apps settings")
+                result.put("success", true)
+                call.resolve(result)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay intent failed in autoConfigureReliability", e)
+            }
+        }
+
+        // 2. Battery Optimization (Unrestricted)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
             if (pm != null && !pm.isIgnoringBatteryOptimizations(context.packageName)) {
@@ -701,7 +719,7 @@ class AlarmSchedulerPlugin : Plugin() {
             }
         }
 
-        // 2. Exact Alarms (Android 12+)
+        // 3. Exact Alarms (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             if (am != null && !am.canScheduleExactAlarms()) {
@@ -719,24 +737,6 @@ class AlarmSchedulerPlugin : Plugin() {
                 } catch (e: Exception) {
                     Log.w(TAG, "Exact alarm intent failed in autoConfigureReliability", e)
                 }
-            }
-        }
-
-        // 3. Display Over Other Apps (Overlay)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                result.put("action", "OVERLAY")
-                result.put("message", "Opening Display Over Other Apps settings")
-                result.put("success", true)
-                call.resolve(result)
-                return
-            } catch (e: Exception) {
-                Log.w(TAG, "Overlay intent failed in autoConfigureReliability", e)
             }
         }
 
@@ -778,12 +778,13 @@ class AlarmSchedulerPlugin : Plugin() {
             true
         }
 
+        val ready = canExact && canDrawOverlays
         result.put("canExact", canExact)
         result.put("canFullScreen", canFullScreen)
         result.put("isBatteryIgnored", isBatteryIgnored)
         result.put("canDrawOverlays", canDrawOverlays)
         result.put("manufacturer", Build.MANUFACTURER)
-        result.put("allGranted", canExact && canFullScreen && isBatteryIgnored && canDrawOverlays)
+        result.put("allGranted", ready)
         call.resolve(result)
     }
 
