@@ -101,6 +101,19 @@
                 android:value="Alarm clock ringing and dismissal challenge enforcement" />
         </service>
 
+        <!-- Persistent Keep-Alive Foreground Service: Keeps app process alive on aggressive OEM devices (Realme/Xiaomi/Oppo/Vivo/Samsung) when >= 1 alarm is scheduled -->
+        <service
+            android:name=".AlarmKeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:directBootAware="true"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent alarm scheduling and OEM swipe protection" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

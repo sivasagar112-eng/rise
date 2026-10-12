@@ -118,6 +118,10 @@ public class BootReceiver extends BroadcastReceiver {
                     Log.d(TAG, "Re-scheduled alarm after boot: " + alarmId + " at " + alarmTime + " (trigger: " + nextTriggerMs + ")");
                 }
             }
+
+            // Ensure keep-alive foreground service is active if any alarms are enabled
+            AlarmKeepAliveService.refresh(context);
+            Log.d(TAG, "Refreshed AlarmKeepAliveService after boot/reschedule");
         } catch (Exception e) {
             Log.e(TAG, "Failed to reschedule alarms after boot", e);
         }

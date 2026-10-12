@@ -24,6 +24,14 @@ public class RiseApplication extends Application implements Application.Activity
 
         // Start network connectivity monitoring
         NetworkMonitor.getInstance(this).startMonitoring();
+
+        // Ensure keep-alive service is running if active alarms exist
+        try {
+            AlarmKeepAliveService.refresh(this);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to refresh AlarmKeepAliveService on startup", e);
+        }
+
         Log.d(TAG, "RiseApplication initialized");
     }
 

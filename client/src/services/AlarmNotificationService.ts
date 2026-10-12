@@ -103,6 +103,8 @@ export interface AlarmSchedulerPluginInterface {
 
   clearPendingAlarm(): Promise<{ success: boolean }>;
 
+  refreshKeepAlive(): Promise<{ success: boolean }>;
+
   launchPushUpActivity(options: { target: number }): Promise<{ completed: boolean; completedReps?: number }>;
 }
 
@@ -319,6 +321,7 @@ export class AlarmNotificationService {
         try {
           await AlarmSchedulerNative.completeAlarm({ alarmId });
           await AlarmSchedulerNative.clearPendingAlarm();
+          await AlarmSchedulerNative.refreshKeepAlive();
         } catch (e) {
           console.warn('[AlarmNotificationService] Failed to complete native alarm service:', e);
         }
@@ -442,8 +445,24 @@ export class AlarmNotificationService {
           notifications: notificationsToSchedule,
         });
       }
+
+      // 3. Keep-Alive Foreground Service: Ensure keep-alive service is synced with current alarms
+      if (isNative) {
+        await this.refreshKeepAlive();
+      }
     } catch (err) {
       console.warn('[AlarmNotificationService] Failed to sync alarms:', err);
+    }
+  }
+
+  // Refresh persistent keep-alive service status (keeps app process alive on swipe)
+  public static async refreshKeepAlive(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await AlarmSchedulerNative.refreshKeepAlive();
+      } catch (e) {
+        console.warn('[AlarmNotificationService] refreshKeepAlive error:', e);
+      }
     }
   }
 

@@ -269,6 +269,9 @@ class AlarmSchedulerPlugin : Plugin() {
             // Persist alarm configuration to native storage for BootReceiver
             saveAlarmToPrefs(id, triggerAtMillis, alarmTime, title, dismissalType, pushupTarget, rampDuration, daysOfWeek)
 
+            // Start/Refresh persistent keep-alive foreground service to prevent OEM swipe termination
+            AlarmKeepAliveService.refresh(context)
+
             val result = JSObject().apply {
                 put("success", true)
                 put("id", id)
@@ -311,6 +314,9 @@ class AlarmSchedulerPlugin : Plugin() {
 
             removeAlarmFromPrefs(id)
 
+            // Refresh keep-alive foreground service (stops if 0 alarms remain)
+            AlarmKeepAliveService.refresh(context)
+
             val result = JSObject().apply { put("success", true) }
             call.resolve(result)
             Log.d(TAG, "Cancelled alarm: $id")
@@ -344,12 +350,29 @@ class AlarmSchedulerPlugin : Plugin() {
             prefs.edit().putString(PREFS_KEY, "[]").apply()
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, "[]").apply()
 
+            // Stop keep-alive service since all alarms cancelled
+            AlarmKeepAliveService.stop(context)
+
             val result = JSObject().apply { put("success", true) }
             call.resolve(result)
             Log.d(TAG, "Cancelled all alarms")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cancel all alarms", e)
             call.reject("Failed to cancel all alarms: ${e.message}")
+        }
+    }
+
+    /**
+     * Explicitly trigger keep-alive foreground service refresh from TypeScript.
+     */
+    @PluginMethod
+    fun refreshKeepAlive(call: PluginCall) {
+        try {
+            AlarmKeepAliveService.refresh(context)
+            val result = JSObject().apply { put("success", true) }
+            call.resolve(result)
+        } catch (e: Exception) {
+            call.reject("Failed to refresh keep-alive service: ${e.message}")
         }
     }
 
