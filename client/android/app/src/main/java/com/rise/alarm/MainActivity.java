@@ -49,8 +49,6 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         configureScreenAndKeyguard();
         setupWebViewPermissionHandler();
-        // Hold a partial WakeLock from trigger until the task Activity reports it is resumed, then release it
-        AlarmTriggerHandler.releaseWakeLock();
     }
 
     private void setupWebViewPermissionHandler() {

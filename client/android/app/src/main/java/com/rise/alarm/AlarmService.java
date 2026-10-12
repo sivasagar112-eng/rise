@@ -71,6 +71,13 @@ public class AlarmService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && "com.rise.alarm.ACTION_STOP_ALARM".equals(intent.getAction())) {
+            Log.d(TAG, "Received ACTION_STOP_ALARM via Notification Action");
+            stopAlarmService(this);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         String alarmId = null;
         String alarmTime = null;
         String alarmLabel = null;
@@ -218,6 +225,13 @@ public class AlarmService extends Service {
             ? "Solve Math Puzzles"
             : dismissalType != null ? dismissalType.replace("_", " ") : "Wake-Up Challenge";
 
+        Intent stopIntent = new Intent(this, AlarmService.class);
+        stopIntent.setAction("com.rise.alarm.ACTION_STOP_ALARM");
+        PendingIntent stopPendingIntent = PendingIntent.getService(
+            this, 9991, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("⏰ Rise — " + formatTime12h(alarmTime))
             .setContentText("Wake up! Complete: " + taskText)
@@ -227,18 +241,25 @@ public class AlarmService extends Service {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(fullScreenIntent, true)
+            .addAction(0, "Start Challenge", pendingIntent)
+            .addAction(0, "Dismiss", stopPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
             .build();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Android 14 (API 34+): Use FOREGROUND_SERVICE_TYPE_SPECIAL_USE exclusively when started from background.
-            // Avoid FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK which is forbidden from background receivers.
             try {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-                Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_SPECIAL_USE");
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+                Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK");
             } catch (Exception e) {
-                Log.w(TAG, "startForeground with SPECIAL_USE failed", e);
+                Log.w(TAG, "startForeground with MEDIA_PLAYBACK failed, trying SPECIAL_USE", e);
+                try {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                    Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_SPECIAL_USE");
+                } catch (Exception e2) {
+                    Log.e(TAG, "startForeground with SPECIAL_USE failed, fallback to standard", e2);
+                    startForeground(NOTIFICATION_ID, notification);
+                }
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
@@ -246,6 +267,7 @@ public class AlarmService extends Service {
                 Log.d(TAG, "startForeground succeeded with FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK");
             } catch (Exception e) {
                 Log.w(TAG, "startForeground with MEDIA_PLAYBACK failed", e);
+                startForeground(NOTIFICATION_ID, notification);
             }
         } else {
             startForeground(NOTIFICATION_ID, notification);
@@ -346,7 +368,7 @@ public class AlarmService extends Service {
 
                     long elapsed = System.currentTimeMillis() - startTime;
                     float progress = Math.min(1.0f, (float) elapsed / rampDurationMs);
-                    currentVolume = 0.1f + progress * 0.9f;
+                    currentVolume = 0.7f + progress * 0.3f;
                     mediaPlayer.setVolume(currentVolume, currentVolume);
 
                     if (progress < 1.0f) {

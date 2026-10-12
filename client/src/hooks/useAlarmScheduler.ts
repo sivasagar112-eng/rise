@@ -208,8 +208,8 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
           }
         }
 
-        // Exact alarm trigger match
-        if (currentMinuteStr === alarm.time) {
+        // Exact alarm trigger match (only for web / browser environment; on native Android, AlarmManager.setAlarmClock is the sole authority)
+        if (!Capacitor.isNativePlatform() && currentMinuteStr === alarm.time) {
           const dismissedMinute = localStorage.getItem(`rise_dismissed_minute_${alarm.id}`);
           const dismissedAt = Number(localStorage.getItem(`rise_dismissed_at_${alarm.id}`) || '0');
           if (dismissedMinute === currentMinuteStr && (Date.now() - dismissedAt) < 65 * 1000) {

@@ -5,23 +5,50 @@ import { formatTime12h } from '../utils/timeFormat';
 
 const CHANNEL_ID = 'rise_alarm_channel_v3';
 
-// Register the custom native plugin
-interface AlarmSchedulerPluginInterface {
-  scheduleExact(options: {
-    alarmId: string;
-    triggerMs: number;
-    triggerMsStr?: string;
-    alarmTime: string;
-    alarmLabel: string;
-    dismissalType: string;
-    pushupTarget: number;
-    rampDuration: number;
-    daysOfWeek?: number[];
-  }): Promise<{ success: boolean; alarmId: string; triggerMs: number }>;
+export interface ScheduleAlarmOptions {
+  id: string;
+  triggerAtMillis: number;
+  title?: string;
+  alarmId?: string; // backwards compatibility
+  triggerMs?: number; // backwards compatibility
+  triggerMsStr?: string;
+  alarmTime?: string;
+  alarmLabel?: string;
+  dismissalType?: string;
+  pushupTarget?: number;
+  rampDuration?: number;
+  daysOfWeek?: number[];
+}
 
-  cancelAlarm(options: { alarmId: string }): Promise<{ success: boolean }>;
+export interface ScheduledAlarmItem {
+  id: string;
+  triggerAtMillis: number;
+  title: string;
+  alarmTime: string;
+  dismissalType: string;
+  pushupTarget: number;
+  rampDuration: number;
+}
+
+// Register the custom native plugin
+export interface AlarmSchedulerPluginInterface {
+  scheduleAlarm(options: ScheduleAlarmOptions): Promise<{ success: boolean; id: string; triggerAtMillis: number }>;
+
+  scheduleExact(options: ScheduleAlarmOptions): Promise<{ success: boolean; alarmId: string; triggerMs: number }>;
+
+  cancelAlarm(options: { id?: string; alarmId?: string }): Promise<{ success: boolean }>;
 
   cancelAll(): Promise<{ success: boolean }>;
+
+  getScheduledAlarms(): Promise<{ alarms: ScheduledAlarmItem[] }>;
+
+  checkExactAlarmPermission(): Promise<{ canSchedule: boolean }>;
+
+  requestExactAlarmPermission(): Promise<{ success: boolean }>;
+
+  stopAlarm(): Promise<{ success: boolean }>;
+
+  completeAlarm(options?: { alarmId?: string }): Promise<{ success: boolean }>;
 
   stopRinging(): Promise<{ success: boolean }>;
 
@@ -37,8 +64,6 @@ interface AlarmSchedulerPluginInterface {
   getNetworkStatus(): Promise<{ isOnline: boolean }>;
 
   canScheduleExactAlarms(): Promise<{ canSchedule: boolean }>;
-
-  requestExactAlarmPermission(): Promise<{ success: boolean }>;
 
   canUseFullScreenIntent(): Promise<{ canUse: boolean }>;
 
@@ -282,10 +307,10 @@ export class AlarmNotificationService {
       // Also stop the native foreground AlarmService and clear pending alarm
       if (Capacitor.isNativePlatform()) {
         try {
-          await AlarmSchedulerNative.stopRinging();
+          await AlarmSchedulerNative.completeAlarm({ alarmId });
           await AlarmSchedulerNative.clearPendingAlarm();
         } catch (e) {
-          console.warn('[AlarmNotificationService] Failed to stop native alarm service:', e);
+          console.warn('[AlarmNotificationService] Failed to complete native alarm service:', e);
         }
       }
     } catch (e) {
@@ -364,10 +389,13 @@ export class AlarmNotificationService {
         // Schedule via native AlarmManager.setAlarmClock() (most reliable)
         if (isNative) {
           try {
-            await AlarmSchedulerNative.scheduleExact({
+            await AlarmSchedulerNative.scheduleAlarm({
+              id: alarm.id,
               alarmId: alarm.id,
+              triggerAtMillis: nextDate.getTime(),
               triggerMs: nextDate.getTime(),
               triggerMsStr: String(nextDate.getTime()),
+              title: alarm.label || 'Rise Alarm',
               alarmTime: alarm.time,
               alarmLabel: alarm.label || 'Rise Alarm',
               dismissalType: alarm.dismissalType,
@@ -375,28 +403,28 @@ export class AlarmNotificationService {
               rampDuration: alarm.rampDuration || 30,
               daysOfWeek: alarm.daysOfWeek || [],
             });
-            console.log(`[AlarmNotificationService] Native alarm scheduled: ${alarm.id} at ${alarm.time}`);
+            console.log(`[AlarmNotificationService] Native alarm scheduled: ${alarm.id} at ${alarm.time} (${nextDate.toLocaleString()})`);
           } catch (e) {
             console.warn(`[AlarmNotificationService] Native schedule failed for ${alarm.id}:`, e);
           }
+        } else {
+          // Schedule a LocalNotification for web / non-native fallback
+          notificationsToSchedule.push({
+            id: notifId,
+            title: `⏰ Alarm — ${formatTime12h(alarm.time).formatted}`,
+            body: `Time to wake up! Complete your ${alarm.dismissalType.replace('_', ' ')} task now.`,
+            schedule: {
+              at: nextDate,
+              allowWhileIdle: true,
+            },
+            channelId: CHANNEL_ID,
+            extra: {
+              alarmId: alarm.id,
+            },
+            ongoing: true,
+            autoCancel: false,
+          });
         }
-
-        // Also schedule a Capacitor LocalNotification as backup (for web & as fallback)
-        notificationsToSchedule.push({
-          id: notifId,
-          title: `⏰ Alarm — ${formatTime12h(alarm.time).formatted}`,
-          body: `Time to wake up! Complete your ${alarm.dismissalType.replace('_', ' ')} task now.`,
-          schedule: {
-            at: nextDate,
-            allowWhileIdle: true,
-          },
-          channelId: CHANNEL_ID,
-          extra: {
-            alarmId: alarm.id,
-          },
-          ongoing: true,
-          autoCancel: false,
-        });
       }
 
       if (notificationsToSchedule.length > 0) {
@@ -407,6 +435,69 @@ export class AlarmNotificationService {
     } catch (err) {
       console.warn('[AlarmNotificationService] Failed to sync alarms:', err);
     }
+  }
+
+  // Explicit typed methods for native Capacitor alarm management
+  public static async scheduleAlarm(options: ScheduleAlarmOptions): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.scheduleAlarm(options);
+        return res?.success ?? false;
+      } catch (e) {
+        console.error('[AlarmNotificationService] scheduleAlarm error:', e);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public static async cancelAlarm(id: string): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.cancelAlarm({ id, alarmId: id });
+        return res?.success ?? false;
+      } catch (e) {
+        console.error('[AlarmNotificationService] cancelAlarm error:', e);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public static async getScheduledAlarms(): Promise<ScheduledAlarmItem[]> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.getScheduledAlarms();
+        return res?.alarms || [];
+      } catch (e) {
+        console.warn('[AlarmNotificationService] getScheduledAlarms error:', e);
+      }
+    }
+    return [];
+  }
+
+  public static async stopAlarm(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.stopAlarm();
+        return res?.success ?? false;
+      } catch (e) {
+        console.warn('[AlarmNotificationService] stopAlarm error:', e);
+      }
+    }
+    return true;
+  }
+
+  public static async completeAlarm(alarmId?: string): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await AlarmSchedulerNative.completeAlarm({ alarmId });
+        return res?.success ?? false;
+      } catch (e) {
+        console.warn('[AlarmNotificationService] completeAlarm error:', e);
+      }
+    }
+    return true;
   }
 
   // Check live validated network status via native NetworkMonitor
@@ -519,10 +610,14 @@ export class AlarmNotificationService {
 
     if (isNative) {
       try {
-        await AlarmSchedulerNative.scheduleExact({
-          alarmId: `test-alarm-${Date.now()}`,
+        const testId = `test-alarm-${Date.now()}`;
+        await AlarmSchedulerNative.scheduleAlarm({
+          id: testId,
+          alarmId: testId,
+          triggerAtMillis: testDate.getTime(),
           triggerMs: testDate.getTime(),
           triggerMsStr: String(testDate.getTime()),
+          title: 'Rise Test Alarm',
           alarmTime: timeStr,
           alarmLabel: 'Rise Test Alarm',
           dismissalType: 'CLICK_SHAKE',
