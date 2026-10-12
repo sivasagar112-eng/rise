@@ -14,7 +14,12 @@ export class StorageService {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.ALARMS);
       if (data !== null) {
-        return JSON.parse(data);
+        const alarms: Alarm[] = JSON.parse(data);
+        return alarms.map((a) => ({
+          ...a,
+          dismissalType: (!a.dismissalType || a.dismissalType === 'RANDOM') ? 'PUSHUP_MATH' : a.dismissalType,
+          pushupTarget: a.pushupTarget || 5,
+        }));
       }
     } catch (e) {
       console.error('Failed to load alarms from storage:', e);

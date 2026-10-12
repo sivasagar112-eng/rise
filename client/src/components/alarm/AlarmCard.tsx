@@ -135,8 +135,20 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
               </span>
             </div>
 
-            <div className="mt-1 flex items-center space-x-2 text-sm text-theme-subtext">
+            <div className="mt-1 flex items-center space-x-2 text-xs text-theme-subtext">
               <span>{getSubtitle()}</span>
+              <span>•</span>
+              <span className="text-blue-400 font-semibold">
+                {alarm.dismissalType === 'PUSHUP_MATH'
+                  ? `Push-ups (${alarm.pushupTarget || 5})`
+                  : alarm.dismissalType === 'CLICK_SHAKE'
+                  ? '100 Taps & Shake'
+                  : alarm.dismissalType === 'MATH'
+                  ? 'Math Problems'
+                  : alarm.dismissalType === 'BRIGHTNESS'
+                  ? 'Room Light'
+                  : 'Push-ups (5)'}
+              </span>
             </div>
           </div>
 

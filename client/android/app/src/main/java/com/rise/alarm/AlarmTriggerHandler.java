@@ -316,11 +316,10 @@ public class AlarmTriggerHandler {
             return;
         }
 
-        // Handle task config defaults & RANDOM assignment explicitly and log
+        // Handle task config defaults: Default to Rise's signature PUSHUP_MATH task
         if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
-            String[] tasks = {"PUSHUP_MATH", "OBJECT_MATCH", "MATH", "BRIGHTNESS", "CLICK_SHAKE"};
-            dismissalType = tasks[new java.util.Random().nextInt(tasks.length)];
-            Log.d(TAG, "Assigned random task for alarm " + alarmId + ": " + dismissalType);
+            dismissalType = "PUSHUP_MATH";
+            Log.d(TAG, "Assigned primary pushup task for alarm " + alarmId + ": " + dismissalType);
         }
         if (pushupTarget <= 0) {
             Log.w(TAG, "pushupTarget invalid (" + pushupTarget + ") for alarm " + alarmId + ", defaulting to 5");

@@ -192,9 +192,8 @@ public class MainActivity extends BridgeActivity {
         }
 
         if (dismissalType == null || dismissalType.trim().isEmpty() || "RANDOM".equalsIgnoreCase(dismissalType)) {
-            String[] tasks = {"PUSHUP_MATH", "OBJECT_MATCH", "MATH", "BRIGHTNESS", "CLICK_SHAKE"};
-            dismissalType = tasks[new java.util.Random().nextInt(tasks.length)];
-            Log.d(TAG, "handleAlarmIntent: fallback dismissalType resolved to: " + dismissalType);
+            dismissalType = "PUSHUP_MATH";
+            Log.d(TAG, "handleAlarmIntent: fallback dismissalType resolved to primary pushup task: " + dismissalType);
         }
         if (pushupTarget <= 0) {
             Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 5");

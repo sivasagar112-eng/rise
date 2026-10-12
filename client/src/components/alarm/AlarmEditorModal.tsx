@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Shuffle } from 'lucide-react';
+import { X, Trash2, Dumbbell, Smartphone, Calculator, Sun } from 'lucide-react';
 import { ScrollPicker } from './ScrollPicker';
 
 interface AlarmEditorModalProps {
@@ -34,8 +34,8 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
   const [label, setLabel] = useState<string>(alarm ? alarm.label : '');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(alarm ? alarm.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]);
-  const [dismissalType] = useState<DismissalType>('RANDOM');
-  const [pushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
+  const [dismissalType, setDismissalType] = useState<DismissalType>(alarm ? alarm.dismissalType : 'PUSHUP_MATH');
+  const [pushupTarget, setPushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
   const [rampDuration, setRampDuration] = useState<number>(alarm ? alarm.rampDuration : 30);
   const [preAlarmMinutes, setPreAlarmMinutes] = useState<number>(
     alarm?.preAlarmMinutes !== undefined
@@ -229,29 +229,128 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
             </div>
           </div>
 
-          {/* ── Automatic Random Wake-Up Challenge ── */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
-              Wake-Up Challenge
-            </label>
-            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
-              <div className="flex items-center space-x-3.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-sm shrink-0">
-                  <Shuffle size={20} />
+          {/* ── Wake-Up Challenge Selection ── */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
+                Wake-Up Challenge
+              </label>
+              <span className="text-[10px] font-semibold text-blue-400">
+                {dismissalType === 'PUSHUP_MATH'
+                  ? 'Push-ups Required'
+                  : dismissalType === 'CLICK_SHAKE'
+                  ? 'Taps & Shake Required'
+                  : dismissalType === 'MATH'
+                  ? 'Math Problems Required'
+                  : dismissalType === 'BRIGHTNESS'
+                  ? 'Room Light Required'
+                  : 'Random Morning Task'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Option 1: Push-ups (Default) */}
+              <button
+                type="button"
+                onClick={() => setDismissalType('PUSHUP_MATH')}
+                className={`p-3 rounded-2xl border text-left flex items-start space-x-2.5 transition-all ${
+                  dismissalType === 'PUSHUP_MATH'
+                    ? 'bg-blue-500/15 border-blue-500 shadow-md shadow-blue-500/10'
+                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${dismissalType === 'PUSHUP_MATH' ? 'bg-blue-500 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                  <Dumbbell size={16} />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">Smart Random Challenge</span>
-                    <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-[9px] font-extrabold text-blue-400 uppercase tracking-wider">
-                      Auto
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-neutral-400 mt-1 leading-snug">
-                    Rise will automatically assign a random morning task (Push-ups, Object Scan, Math, Light Check, or Taps &amp; Shakes) when your alarm rings.
-                  </p>
+                  <span className="text-xs font-bold text-white block">Push-ups</span>
+                  <span className="text-[10px] text-neutral-400">AI Pose Camera</span>
+                </div>
+              </button>
+
+              {/* Option 2: 100 Taps & Shake */}
+              <button
+                type="button"
+                onClick={() => setDismissalType('CLICK_SHAKE')}
+                className={`p-3 rounded-2xl border text-left flex items-start space-x-2.5 transition-all ${
+                  dismissalType === 'CLICK_SHAKE'
+                    ? 'bg-blue-500/15 border-blue-500 shadow-md shadow-blue-500/10'
+                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${dismissalType === 'CLICK_SHAKE' ? 'bg-blue-500 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                  <Smartphone size={16} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Taps & Shake</span>
+                  <span className="text-[10px] text-neutral-400">100 Clicks + Shake</span>
+                </div>
+              </button>
+
+              {/* Option 3: Math */}
+              <button
+                type="button"
+                onClick={() => setDismissalType('MATH')}
+                className={`p-3 rounded-2xl border text-left flex items-start space-x-2.5 transition-all ${
+                  dismissalType === 'MATH'
+                    ? 'bg-blue-500/15 border-blue-500 shadow-md shadow-blue-500/10'
+                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${dismissalType === 'MATH' ? 'bg-blue-500 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                  <Calculator size={16} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Math Puzzles</span>
+                  <span className="text-[10px] text-neutral-400">3 Equations</span>
+                </div>
+              </button>
+
+              {/* Option 4: Room Light */}
+              <button
+                type="button"
+                onClick={() => setDismissalType('BRIGHTNESS')}
+                className={`p-3 rounded-2xl border text-left flex items-start space-x-2.5 transition-all ${
+                  dismissalType === 'BRIGHTNESS'
+                    ? 'bg-blue-500/15 border-blue-500 shadow-md shadow-blue-500/10'
+                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${dismissalType === 'BRIGHTNESS' ? 'bg-blue-500 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                  <Sun size={16} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Turn on Lights</span>
+                  <span className="text-[10px] text-neutral-400">Camera Light Sensor</span>
+                </div>
+              </button>
+            </div>
+
+            {/* If Push-ups selected, show rep target picker */}
+            {dismissalType === 'PUSHUP_MATH' && (
+              <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-white block">Push-Up Target</span>
+                  <span className="text-[10px] text-neutral-400">Target reps to turn off alarm</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  {[5, 10, 15, 20].map((reps) => (
+                    <button
+                      key={reps}
+                      type="button"
+                      onClick={() => setPushupTarget(reps)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        pushupTarget === reps
+                          ? 'bg-blue-500 text-white shadow-md'
+                          : 'bg-white/10 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      {reps}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* ── Volume Ramp & Pre-alarm ── */}
