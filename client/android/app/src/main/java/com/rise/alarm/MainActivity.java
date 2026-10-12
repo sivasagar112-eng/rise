@@ -24,11 +24,9 @@ import android.os.Looper;
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "RiseMainActivity";
     private static final int CAMERA_PERMISSION_CODE = 101;
-    private static final int NOTIFICATION_PERMISSION_CODE = 102;
     private PermissionRequest pendingPermissionRequest = null;
 
     private NetworkMonitor.NetworkStatusListener networkListener;
-    private boolean hasPromptedBatteryThisSession = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,13 +47,6 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         configureScreenAndKeyguard();
         setupWebViewPermissionHandler();
-    }
-
-    private void checkAndPromptBatteryIfMissing() {
-        if (hasPromptedBatteryThisSession) return;
-        hasPromptedBatteryThisSession = true;
-        // Post delayed so UI is completely rendered before prompt displays
-        new Handler(Looper.getMainLooper()).postDelayed(this::requestBatteryOptimizationExemption, 1200);
     }
 
     private void setupWebViewPermissionHandler() {
@@ -262,43 +253,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void requestCameraFirst() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-        } else {
-            // Camera already granted; proceed to notifications
-            requestNotificationSecond();
-        }
-    }
 
-    private void requestNotificationSecond() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_CODE);
-            } else {
-                requestBatteryOptimizationExemption();
-            }
-        } else {
-            requestBatteryOptimizationExemption();
-        }
-    }
-
-    private void requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
-                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                    Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                    intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(intent);
-                    Log.d(TAG, "Prompted user for battery optimization exemption");
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Battery optimization request failed", e);
-            }
-        }
-    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {

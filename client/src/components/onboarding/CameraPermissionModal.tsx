@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Camera, Bell, Shield, Check, ArrowRight } from 'lucide-react';
 import { StorageService } from '../../services/StorageService';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { AlarmNotificationService } from '../../services/AlarmNotificationService';
 
 interface CameraPermissionModalProps {
   onDismiss: () => void;
@@ -25,26 +24,11 @@ export const CameraPermissionModal: React.FC<CameraPermissionModalProps> = ({ on
     setStep('NOTIFICATIONS');
   };
 
-  // Step 2: Notification Access & Background Permissions
+  // Step 2: Notification Access
   const handleEnableNotifications = async () => {
     try {
       await LocalNotifications.requestPermissions();
     } catch {}
-
-    try {
-      const status = await AlarmNotificationService.getBackgroundPermissionStatus();
-      if (!status.canExact) {
-        await AlarmNotificationService.requestExactAlarmPermission();
-      }
-      if (!status.canFullScreen) {
-        await AlarmNotificationService.requestFullScreenIntentPermission();
-      }
-      if (!status.isBatteryIgnored) {
-        await AlarmNotificationService.requestBatteryOptimizationExemption();
-      }
-    } catch (e) {
-      console.warn('Background permission request error:', e);
-    }
 
     StorageService.markOnboardingDone();
     onDismiss();

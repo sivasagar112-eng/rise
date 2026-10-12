@@ -129,32 +129,7 @@ export class AlarmNotificationService {
     if (this.isInitialized) return;
 
     try {
-      // 0. Native exact alarm & battery optimization checks (crucial for alarms to ring when killed/swiped on Realme, Xiaomi, Samsung)
-      if (Capacitor.isNativePlatform()) {
-        try {
-          const exact = await AlarmSchedulerNative.canScheduleExactAlarms();
-          if (!exact.canSchedule) {
-            console.log('[AlarmNotificationService] Requesting exact alarm permission');
-            await AlarmSchedulerNative.requestExactAlarmPermission();
-          }
-
-          const battery = await AlarmSchedulerNative.isBatteryOptimizationIgnored();
-          if (!battery.isIgnored) {
-            console.log('[AlarmNotificationService] Requesting battery optimization exemption');
-            await AlarmSchedulerNative.requestBatteryOptimizationExemption();
-          }
-        } catch (e) {
-          console.warn('[AlarmNotificationService] Battery/ExactAlarm permission check error:', e);
-        }
-      }
-
-      // 1. Request permissions for Android 13+ / Web
-      const perm = await LocalNotifications.checkPermissions();
-      if (perm.display !== 'granted') {
-        await LocalNotifications.requestPermissions();
-      }
-
-      // 2. Create high-priority alarm notification channel for Android 8.0+
+      // 1. Create high-priority alarm notification channel for Android 8.0+
       await LocalNotifications.createChannel({
         id: CHANNEL_ID,
         name: 'Rise Wake-Up Alarms',
