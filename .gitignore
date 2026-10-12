@@ -48,3 +48,4 @@ Thumbs.db
 *.sqlite3
 
 .vscode/
+.ideavo/project
