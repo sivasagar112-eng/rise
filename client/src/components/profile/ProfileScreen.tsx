@@ -1,26 +1,43 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../services/StorageService';
 import { synth } from '../../services/WebAudioSynth';
-import { api } from '../../api/client';
 import { GoogleAuthService } from '../../services/GoogleAuthService';
 import { Volume2, ShieldCheck, LogOut, AlertCircle, Camera, FlipHorizontal, Check } from 'lucide-react';
 
 export const ProfileScreen: React.FC = () => {
   const [user, setUser] = useState(StorageService.getUser());
-  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [isPlayingAudioTest, setIsPlayingAudioTest] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<string>('Untested');
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
-  const testVideoRef = React.useRef<HTMLVideoElement | null>(null);
-  const testStreamRef = React.useRef<MediaStream | null>(null);
+  const testVideoRef = useRef<HTMLVideoElement | null>(null);
+  const testStreamRef = useRef<MediaStream | null>(null);
+
+  // Restore Google user session if already signed into Firebase on device
+  useEffect(() => {
+    if (!user && GoogleAuthService.isAvailable()) {
+      GoogleAuthService.getCurrentUser()
+        .then((currentUser) => {
+          if (currentUser?.uid) {
+            const profile = {
+              id: currentUser.uid,
+              email: currentUser.email || '',
+              name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+              photoUrl: currentUser.photoUrl || '',
+              token: 'firebase-' + currentUser.uid,
+            };
+            StorageService.saveUser(profile as any);
+            setUser(profile as any);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user]);
 
   // Check camera device access on mount
-  React.useEffect(() => {
+  useEffect(() => {
     if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
       navigator.mediaDevices.enumerateDevices().then((devices) => {
         const hasCamera = devices.some((d) => d.kind === 'videoinput' && d.label !== '');
@@ -98,52 +115,6 @@ export const ProfileScreen: React.FC = () => {
     setIsCameraModalOpen(false);
   };
 
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
-    setAuthLoading(true);
-
-    try {
-      if (GoogleAuthService.isAvailable()) {
-        let authResult;
-        if (authMode === 'REGISTER') {
-          authResult = await GoogleAuthService.signUpWithEmail(email, password);
-        } else {
-          authResult = await GoogleAuthService.signInWithEmail(email, password);
-        }
-        const profile = {
-          id: authResult.uid,
-          email: authResult.email || email,
-          name: authResult.displayName || email.split('@')[0],
-          photoUrl: authResult.photoUrl || '',
-          token: 'firebase-' + authResult.uid,
-        };
-        StorageService.saveUser(profile as any);
-        setUser(profile as any);
-      } else {
-        if (authMode === 'REGISTER') {
-          const res = await api.register(email, password);
-          const profile = { id: res.user.id, email: res.user.email, token: res.token };
-          StorageService.saveUser(profile);
-          setUser(profile);
-        } else {
-          const res = await api.login(email, password);
-          const profile = { id: res.user.id, email: res.user.email, token: res.token };
-          StorageService.saveUser(profile);
-          setUser(profile);
-        }
-      }
-      setEmail('');
-      setPassword('');
-    } catch (err: unknown) {
-      setAuthError(err instanceof Error ? err.message : 'Authentication failed');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const [googleLoading, setGoogleLoading] = useState(false);
-
   const handleGoogleSignIn = async () => {
     setAuthError(null);
     setGoogleLoading(true);
@@ -151,16 +122,19 @@ export const ProfileScreen: React.FC = () => {
       const googleUser = await GoogleAuthService.signIn();
       const profile = {
         id: googleUser.uid,
-        email: googleUser.email,
-        name: googleUser.displayName,
-        photoUrl: googleUser.photoUrl,
+        email: googleUser.email || '',
+        name: googleUser.displayName || googleUser.email?.split('@')[0] || 'User',
+        photoUrl: googleUser.photoUrl || '',
         token: 'firebase-' + googleUser.uid,
       };
       StorageService.saveUser(profile as any);
       setUser(profile as any);
     } catch (err: unknown) {
       console.error('Google Sign-In failed:', err);
-      setAuthError(err instanceof Error ? err.message : 'Google Sign-In failed');
+      const msg = err instanceof Error ? err.message : 'Google Sign-In failed';
+      if (!msg.toLowerCase().includes('cancel')) {
+        setAuthError(msg);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -179,15 +153,12 @@ export const ProfileScreen: React.FC = () => {
         <h2 className="text-3xl font-bold tracking-tight text-theme-text">
           Profile
         </h2>
-        <p className="text-sm text-theme-subtext mt-0.5">
-          Account sync and hardware diagnostics
-        </p>
       </div>
 
       {/* Account Card */}
       <div className="rounded-2xl p-5 bg-theme-card border border-theme-border shadow-sm space-y-4">
         <div className="text-xs font-bold tracking-wider uppercase text-theme-subtext">
-          ACCOUNT & SYNC
+          ACCOUNT
         </div>
 
         {user ? (
@@ -206,7 +177,7 @@ export const ProfileScreen: React.FC = () => {
               )}
               <div>
                 <div className="text-theme-text font-bold text-sm">{(user as any).name || user.email}</div>
-                <div className="text-xs text-theme-subtext">{(user as any).name ? user.email : 'Cloud sync active'}</div>
+                <div className="text-xs text-theme-subtext">{(user as any).name ? user.email : 'Google Account'}</div>
               </div>
             </div>
 
@@ -219,78 +190,23 @@ export const ProfileScreen: React.FC = () => {
             </button>
           </div>
         ) : (
-          <form onSubmit={handleAuthSubmit} className="space-y-3">
-            <div className="flex rounded-xl bg-theme-bg p-1 border border-theme-border">
-              <button
-                type="button"
-                onClick={() => setAuthMode('LOGIN')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  authMode === 'LOGIN'
-                    ? 'bg-theme-card text-theme-text shadow-sm'
-                    : 'text-theme-subtext'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode('REGISTER')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  authMode === 'REGISTER'
-                    ? 'bg-theme-card text-theme-text shadow-sm'
-                    : 'text-theme-subtext'
-                }`}
-              >
-                Register
-              </button>
-            </div>
+          <div className="space-y-3">
+            <p className="text-xs text-theme-subtext">
+              Sign in with your Google account to access your profile.
+            </p>
 
             {authError && (
               <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center space-x-2">
-                <AlertCircle size={14} />
+                <AlertCircle size={14} className="shrink-0" />
                 <span>{authError}</span>
               </div>
             )}
 
-            <input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-3.5 py-2.5 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm focus:outline-none focus:border-blue-500 transition-colors"
-            />
-            <input
-              type="password"
-              placeholder="Password (min 6 characters)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm focus:outline-none focus:border-blue-500 transition-colors"
-            />
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold text-xs transition-colors disabled:opacity-50"
-            >
-              {authLoading ? 'Connecting...' : authMode === 'REGISTER' ? 'Create Account & Sync' : 'Sign In'}
-            </button>
-
-            <div className="relative my-3">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-theme-border" />
-              </div>
-              <div className="relative flex justify-center text-[10px] uppercase">
-                <span className="bg-theme-card px-2 text-theme-subtext font-bold">Or</span>
-              </div>
-            </div>
-
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              disabled={googleLoading || authLoading}
-              className="w-full py-2.5 px-4 rounded-xl bg-theme-bg border border-theme-border hover:bg-theme-border/50 text-theme-text font-semibold text-xs transition-colors flex items-center justify-center space-x-2.5 disabled:opacity-50"
+              disabled={googleLoading}
+              className="w-full py-2.5 px-4 rounded-xl bg-theme-bg border border-theme-border hover:bg-theme-border/50 active:scale-[0.98] text-theme-text font-semibold text-xs transition-all flex items-center justify-center space-x-2.5 disabled:opacity-50 shadow-sm"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -312,7 +228,7 @@ export const ProfileScreen: React.FC = () => {
               </svg>
               <span>{googleLoading ? 'Signing in...' : 'Sign in with Google'}</span>
             </button>
-          </form>
+          </div>
         )}
       </div>
 

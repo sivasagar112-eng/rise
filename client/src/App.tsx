@@ -13,6 +13,7 @@ import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
 import { BellOff, ShieldAlert, X } from 'lucide-react';
 import { AlarmNotificationService } from './services/AlarmNotificationService';
+import { GoogleAuthService } from './services/GoogleAuthService';
 import { App as CapApp } from '@capacitor/app';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
@@ -120,6 +121,26 @@ export const App: React.FC = () => {
     setActiveTab,
     showToast,
   });
+
+  // Auto-restore Google user session on app launch if available
+  useEffect(() => {
+    if (!StorageService.getUser() && GoogleAuthService.isAvailable()) {
+      GoogleAuthService.getCurrentUser()
+        .then((currentUser) => {
+          if (currentUser?.uid) {
+            const profile = {
+              id: currentUser.uid,
+              email: currentUser.email || '',
+              name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+              photoUrl: currentUser.photoUrl || '',
+              token: 'firebase-' + currentUser.uid,
+            };
+            StorageService.saveUser(profile as any);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   // Sync with remote server on mount if logged in
   useEffect(() => {
