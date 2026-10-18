@@ -147,6 +147,8 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
                   ? 'Math Problems'
                   : alarm.dismissalType === 'BRIGHTNESS'
                   ? 'Room Light'
+                  : alarm.dismissalType === 'OBJECT_MATCH'
+                  ? 'Scan Object'
                   : 'Push-ups (5)'}
               </span>
             </div>

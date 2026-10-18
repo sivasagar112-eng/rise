@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Alarm, DismissalType } from '../../types/alarm';
-import { X, Trash2, Dumbbell, Smartphone, Calculator, Sun } from 'lucide-react';
+import { X, Trash2, Dumbbell, Smartphone, Calculator, Sun, Scan } from 'lucide-react';
 import { ScrollPicker } from './ScrollPicker';
 
 interface AlarmEditorModalProps {
@@ -244,6 +244,8 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   ? 'Math Problems Required'
                   : dismissalType === 'BRIGHTNESS'
                   ? 'Room Light Required'
+                  : dismissalType === 'OBJECT_MATCH'
+                  ? 'Scan Object Required'
                   : 'Random Morning Task'}
               </span>
             </div>
@@ -324,7 +326,39 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   <span className="text-[10px] text-neutral-400">Camera Light Sensor</span>
                 </div>
               </button>
+
+              {/* Option 5: Scan Object */}
+              <button
+                type="button"
+                onClick={() => setDismissalType('OBJECT_MATCH')}
+                className={`p-3 rounded-2xl border text-left flex items-start space-x-2.5 transition-all col-span-2 ${
+                  dismissalType === 'OBJECT_MATCH'
+                    ? 'bg-blue-500/15 border-blue-500 shadow-md shadow-blue-500/10'
+                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${dismissalType === 'OBJECT_MATCH' ? 'bg-blue-500 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                  <Scan size={16} />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Scan Object</span>
+                  <span className="text-[10px] text-neutral-400">AI Camera Scanner (Mug, Sink, Book, etc.)</span>
+                </div>
+              </button>
             </div>
+
+            {/* If Scan Object selected, show hint banner */}
+            {dismissalType === 'OBJECT_MATCH' && (
+              <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center space-x-3 animate-fade-in">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 shrink-0">
+                  <Scan size={16} />
+                </div>
+                <div className="text-xs text-neutral-300">
+                  <span className="font-bold text-white block">AI Object Detection</span>
+                  Scan a target household object (coffee mug, bathroom sink, book, etc.) to dismiss.
+                </div>
+              </div>
+            )}
 
             {/* If Push-ups selected, show rep target picker */}
             {dismissalType === 'PUSHUP_MATH' && (
