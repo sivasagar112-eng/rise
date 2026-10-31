@@ -96,11 +96,11 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md animate-fade-in"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-[#111113] border border-white/10 rounded-3xl select-none max-h-[90vh] overflow-y-auto text-white shadow-2xl flex flex-col"
+        className="w-full h-full bg-[#111113] select-none overflow-y-auto text-white flex flex-col"
       >
         {/* ── Slide Down Gesture Handle ── */}
         <div

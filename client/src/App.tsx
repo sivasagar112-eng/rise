@@ -422,21 +422,15 @@ export const App: React.FC = () => {
       {/* Settings Modal */}
       {isSettingsOpen && (
         <div
-          onClick={() => setIsSettingsOpen(false)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          className="fixed inset-0 z-50 bg-theme-bg animate-fade-in overflow-y-auto"
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-theme-card border border-theme-border rounded-2xl max-h-[90vh] overflow-y-auto"
-          >
-            <Suspense fallback={null}>
-              <SettingsScreen
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                onClose={() => setIsSettingsOpen(false)}
-              />
-            </Suspense>
-          </div>
+          <Suspense fallback={null}>
+            <SettingsScreen
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onClose={() => setIsSettingsOpen(false)}
+            />
+          </Suspense>
         </div>
       )}
 
