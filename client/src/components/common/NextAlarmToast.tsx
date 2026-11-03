@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Clock } from 'lucide-react';
+import { Haptics } from '../../services/HapticFeedback';
 
 export interface ToastMessage {
   id: string;
@@ -14,49 +15,67 @@ interface NextAlarmToastProps {
 }
 
 export const NextAlarmToast: React.FC<NextAlarmToastProps> = ({ toast, onDismiss }) => {
-  const [isVisible, setIsVisible] = useState(false);
+  const [phase, setPhase] = useState<'hidden' | 'in' | 'visible' | 'out'>('hidden');
 
   useEffect(() => {
     if (!toast) {
-      setIsVisible(false);
-      return;
+      setPhase('out');
+      const t = setTimeout(() => setPhase('hidden'), 280);
+      return () => clearTimeout(t);
     }
 
-    setIsVisible(true);
-    const duration = toast.durationMs || 3500;
+    setPhase('in');
+    Haptics.tick();
+    const visibleTimer = setTimeout(() => setPhase('visible'), 10);
+    const outTimer = setTimeout(() => {
+      setPhase('out');
+      setTimeout(onDismiss, 280);
+    }, toast.durationMs ?? 3600);
 
-    const timer = setTimeout(() => {
-      setIsVisible(false);
-      // Wait for exit animation before notifying parent
-      const dismissTimer = setTimeout(() => {
-        onDismiss();
-      }, 300);
-      return () => clearTimeout(dismissTimer);
-    }, duration);
-
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(visibleTimer);
+      clearTimeout(outTimer);
+    };
   }, [toast, onDismiss]);
 
-  if (!toast && !isVisible) {
-    return null;
-  }
+  if (phase === 'hidden') return null;
 
   return (
     <div
-      className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300 ease-out ${
-        isVisible
-          ? 'opacity-100 translate-y-0 scale-100'
-          : 'opacity-0 translate-y-4 scale-95'
-      }`}
+      className="fixed bottom-24 left-1/2 z-50 pointer-events-none select-none"
+      style={{
+        transform:
+          phase === 'out'
+            ? 'translateX(-50%) translateY(12px) scale(0.93)'
+            : phase === 'in'
+            ? 'translateX(-50%) translateY(14px) scale(0.9)'
+            : 'translateX(-50%) translateY(0) scale(1)',
+        opacity: phase === 'visible' ? 1 : 0,
+        transition:
+          phase === 'in' || phase === 'visible'
+            ? 'transform 380ms cubic-bezier(0.34,1.56,0.64,1), opacity 260ms ease'
+            : 'transform 220ms ease, opacity 220ms ease',
+      }}
     >
-      <div className="flex items-center space-x-3 px-4 py-2.5 bg-[#25272b]/95 backdrop-blur-xl text-white rounded-full border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
-        {/* Rounded clock icon container matching screenshot */}
-        <div className="w-6 h-6 rounded-full bg-black/40 flex items-center justify-center shrink-0 border border-white/5">
-          <Clock size={13} className="text-neutral-300 stroke-[2.2]" />
+      <div
+        className="
+          flex items-center gap-2.5 px-4 py-2.5
+          rounded-full
+          border border-white/15
+          text-white
+        "
+        style={{
+          background: 'rgba(18, 19, 26, 0.94)',
+          backdropFilter: 'blur(28px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+          boxShadow:
+            '0 12px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+        }}
+      >
+        <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 border border-blue-500/30">
+          <Clock size={12} className="text-blue-400" strokeWidth={2.6} />
         </div>
-
-        {/* Toast Text matching screenshot (e.g. "Next alarm in 6 minutes") */}
-        <span className="text-xs sm:text-sm font-medium tracking-wide text-neutral-100 pr-1 select-none">
+        <span className="text-xs font-bold tracking-tight text-neutral-100 whitespace-nowrap">
           {toast?.text}
         </span>
       </div>

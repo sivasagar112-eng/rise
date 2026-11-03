@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Haptics } from '../../services/HapticFeedback';
 
 interface ScrollPickerProps {
   items: string[];
@@ -20,7 +21,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
   items,
   selectedIndex,
   onChange,
-  itemHeight = 46,
+  itemHeight = 48,
   loop = true,
 }) => {
   const [offset, setOffset] = useState(-selectedIndex * itemHeight);
@@ -52,11 +53,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
       const activeIndex = ((currentK % items.length) + items.length) % items.length;
       if (activeIndex !== lastTickIndexRef.current) {
         lastTickIndexRef.current = activeIndex;
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate(6);
-          } catch {}
-        }
+        Haptics.tick();
       }
     },
     [itemHeight, items.length]
@@ -205,7 +202,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
     let targetOffset = offsetRef.current;
     if (Math.abs(velocity) > 0.1) {
       // Scale momentum distance by velocity
-      const momentumDistance = velocity * 250;
+      const momentumDistance = velocity * 260;
       targetOffset += momentumDistance;
     }
 
@@ -253,6 +250,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
 
   const handleItemClick = (slotK: number) => {
     if (isDraggingRef.current) return;
+    Haptics.tick();
     const targetOffset = -slotK * itemHeight;
     animateToOffset(targetOffset, 240);
   };
@@ -269,9 +267,9 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
     const distFromCenter = slotK * itemHeight + offset;
     const normDist = distFromCenter / itemHeight;
 
-    const rotateX = -normDist * 30; // degrees
-    const scale = Math.max(0.72, 1 - Math.abs(normDist) * 0.15);
-    const opacity = Math.max(0.2, 1 - Math.abs(normDist) * 0.55);
+    const rotateX = -normDist * 28; // degrees
+    const scale = Math.max(0.72, 1 - Math.abs(normDist) * 0.14);
+    const opacity = Math.max(0.18, 1 - Math.abs(normDist) * 0.52);
     const isSelected = Math.abs(normDist) < 0.45;
 
     return (
@@ -290,10 +288,10 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
         }}
       >
         <span
-          className={`font-black tracking-tight ${
+          className={`font-black tracking-tight transition-all duration-150 ${
             isSelected
-              ? 'text-4xl text-white drop-shadow-[0_2px_10px_rgba(255,255,255,0.3)]'
-              : 'text-3xl text-neutral-400'
+              ? 'text-4xl sm:text-[42px] text-white drop-shadow-[0_2px_12px_rgba(255,255,255,0.35)]'
+              : 'text-3xl text-neutral-500'
           }`}
         >
           {item}
@@ -307,11 +305,13 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
       className="relative overflow-hidden select-none touch-none w-full"
       style={{
         height: containerHeight,
-        perspective: '1000px',
+        perspective: '900px',
         touchAction: 'none',
         overscrollBehavior: 'contain',
-        maskImage: 'linear-gradient(to bottom, transparent 0%, black 22%, black 78%, transparent 100%)',
-        WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 22%, black 78%, transparent 100%)',
+        maskImage:
+          'linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)',
+        WebkitMaskImage:
+          'linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -319,13 +319,18 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
       onPointerCancel={handlePointerCancel}
       onWheel={handleWheel}
     >
-      {/* Center Highlight Selection Band */}
+      {/* Center Magnifier Lens / Band */}
       <div
-        className="absolute w-full rounded-xl bg-white/10 border border-white/15 pointer-events-none backdrop-blur-sm"
+        className="absolute w-full rounded-2xl pointer-events-none"
         style={{
           height: itemHeight,
           top: '50%',
           transform: 'translateY(-50%)',
+          background: 'rgba(255, 255, 255, 0.08)',
+          border: '1px solid rgba(255, 255, 255, 0.16)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.3)',
           zIndex: 0,
         }}
       />

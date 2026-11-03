@@ -11,9 +11,10 @@ import { NextAlarmToast, ToastMessage } from './components/common/NextAlarmToast
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getTimeUntilAlarm } from './utils/timeFormat';
 import { api } from './api/client';
-import { BellOff, ShieldAlert, X } from 'lucide-react';
+import { BellOff, ShieldAlert, X, Plus } from 'lucide-react';
 import { AlarmNotificationService } from './services/AlarmNotificationService';
 import { GoogleAuthService } from './services/GoogleAuthService';
+import { Haptics } from './services/HapticFeedback';
 import { App as CapApp } from '@capacitor/app';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
@@ -284,7 +285,7 @@ export const App: React.FC = () => {
   }, [completeDismissal, alarms]);
 
   return (
-    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none pb-28 transition-colors duration-200">
+    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none pb-28" style={{ transition: 'background-color 280ms cubic-bezier(0.22,1,0.36,1), color 280ms ease' }}>
       {/* Top Header with theme toggle on top right */}
       <Header
         theme={theme}
@@ -309,35 +310,39 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-md mx-auto px-5 pb-36">
+      <main className="flex-1 w-full max-w-md mx-auto px-4 pb-36">
         {/* Tab 1: Alarms */}
         {activeTab === 'ALARM' && (
-          <div className="animate-fade-in space-y-1">
+          <div className="animate-fade-in">
             {/* Background Reliability Alert Banner */}
             {!backgroundReady && !bannerDismissed && (
               <div
-                className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between"
+                className="mb-4 p-4 rounded-2xl flex items-center justify-between animate-slide-down"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(234,88,12,0.08))',
+                  border: '1px solid rgba(245,158,11,0.25)',
+                }}
               >
                 <div
                   onClick={() => setIsSettingsOpen(true)}
-                  className="flex items-center space-x-3 flex-1 cursor-pointer mr-2"
+                  className="flex items-center gap-3 flex-1 cursor-pointer mr-3"
                 >
                   <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                    <ShieldAlert size={18} />
+                    <ShieldAlert size={17} />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-amber-200">Background Ringing Setup Needed</p>
-                    <p className="text-[11px] text-amber-300/80">Tap to allow alarms when phone is locked</p>
+                    <p className="text-[11px] text-amber-300/70 mt-0.5">Tap to allow alarms when phone is locked</p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();
                       await AlarmNotificationService.requestOverlayPermission();
                       setTimeout(checkBackgroundStatus, 1500);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold shadow hover:bg-amber-400 active:scale-95 transition-transform"
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold"
                   >
                     Auto-Fix
                   </button>
@@ -347,24 +352,44 @@ export const App: React.FC = () => {
                       setBannerDismissed(true);
                       localStorage.setItem('rise_bg_banner_dismissed', 'true');
                     }}
-                    className="p-1.5 rounded-lg text-amber-300/60 hover:text-amber-200 hover:bg-white/5 transition-colors"
-                    title="Dismiss"
+                    className="p-1.5 rounded-lg text-amber-400/60 hover:text-amber-300"
                   >
-                    <X size={16} />
+                    <X size={15} />
                   </button>
                 </div>
               </div>
             )}
 
             {alarms.length === 0 ? (
-              <div className="py-16 text-center text-theme-subtext space-y-3">
-                <div className="w-16 h-16 rounded-full bg-theme-card border border-theme-border flex items-center justify-center mx-auto text-neutral-400">
-                  <BellOff size={28} />
+              <div className="py-16 flex flex-col items-center text-center gap-5 animate-fade-in">
+                <div
+                  className="w-24 h-24 rounded-[32px] flex items-center justify-center animate-float card-premium"
+                  style={{
+                    background: 'var(--color-card)',
+                    border: '1px solid var(--color-card-border)',
+                  }}
+                >
+                  <BellOff size={36} className="text-theme-subtext" />
                 </div>
-                <h3 className="text-lg font-bold text-theme-text">No alarms yet</h3>
-                <p className="text-sm max-w-xs mx-auto">
-                  Tap the <strong className="text-blue-500 font-bold">+</strong> button below to configure your first wake-up alarm.
-                </p>
+                <div>
+                  <h3 className="text-2xl font-black text-theme-text tracking-tight">
+                    No alarms scheduled
+                  </h3>
+                  <p className="text-xs text-theme-subtext mt-1 max-w-[240px] leading-relaxed">
+                    Set a no-snooze alarm with push-ups, light, or math to wake up energized.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    Haptics.medium();
+                    setEditingAlarm(null);
+                    setIsEditorOpen(true);
+                  }}
+                  className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black tracking-wide shadow-lg shadow-blue-500/25 press-pop flex items-center gap-2"
+                >
+                  <Plus size={16} strokeWidth={2.6} />
+                  <span>Create First Alarm</span>
+                </button>
               </div>
             ) : (
               alarms.map((alarm) => (

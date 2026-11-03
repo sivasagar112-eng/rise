@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Alarm } from '../../types/alarm';
-import { Hourglass, RotateCw, X } from 'lucide-react';
+import { AlarmClock, RotateCw, X } from 'lucide-react';
 import { formatTime12h } from '../../utils/timeFormat';
+import { Haptics } from '../../services/HapticFeedback';
 
 interface DynamicIslandAlarmProps {
   alarm: Alarm;
@@ -14,76 +15,98 @@ export const DynamicIslandAlarm: React.FC<DynamicIslandAlarmProps> = ({
   onPress,
   onDismiss,
 }) => {
+  useEffect(() => {
+    Haptics.warning();
+  }, []);
+
   const getTaskSubtitle = () => {
-    if (alarm.dismissalType === 'PUSHUP_MATH') {
-      return `Pushups • ${alarm.pushupTarget || 5} reps`;
-    }
-    if (alarm.dismissalType === 'BRIGHTNESS') {
-      return 'Light Check • Turn lights on';
-    }
-    if (alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY') {
-      return '100 Taps + 5 Shakes';
-    }
-    if (alarm.dismissalType === 'OBJECT_MATCH') {
-      return 'Object Scan • Scan item';
-    }
-    return 'Math Challenge';
+    if (alarm.dismissalType === 'PUSHUP_MATH') return `${alarm.pushupTarget ?? 5} push-ups`;
+    if (alarm.dismissalType === 'BRIGHTNESS') return 'Turn on lights';
+    if (alarm.dismissalType === 'CLICK_SHAKE') return '100 taps + shake';
+    if (alarm.dismissalType === 'OBJECT_MATCH') return 'Scan an object';
+    return '3 math equations';
   };
+
+  const { formatted } = formatTime12h(alarm.time);
 
   return (
     <div
-      onClick={onPress}
-      className="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md cursor-pointer select-none"
+      onClick={() => {
+        Haptics.medium();
+        onPress?.();
+      }}
+      className="fixed top-3 left-1/2 z-50 w-[92%] max-w-[400px] cursor-pointer select-none"
       style={{
-        animation: 'dynamicIslandExpand 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        transform: 'translateX(-50%)',
+        animation: 'islandExpand 400ms cubic-bezier(0.16,1,0.3,1) forwards',
       }}
     >
-      <div className="flex items-center justify-between px-5 py-3.5 bg-[#252528]/95 text-white rounded-[26px] border border-white/10 shadow-2xl backdrop-blur-2xl transition-all duration-200 active:scale-[0.98]">
-        {/* Left: Hourglass Icon matching image */}
-        <div className="flex items-center space-x-3.5 flex-1 min-w-0">
-          <div className="flex items-center justify-center shrink-0">
-            <Hourglass size={28} className="text-blue-500 fill-blue-500/20 stroke-[2.2]" />
+      <div
+        className="
+          flex items-center justify-between px-4 py-3.5
+          rounded-[28px] text-white
+          border border-white/15
+          press-spring
+        "
+        style={{
+          background: 'rgba(16, 17, 24, 0.96)',
+          backdropFilter: 'blur(36px) saturate(190%)',
+          WebkitBackdropFilter: 'blur(36px) saturate(190%)',
+          boxShadow:
+            '0 12px 36px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12)',
+        }}
+      >
+        {/* Left: Icon & Text */}
+        <div className="flex items-center gap-3.5 flex-1 min-w-0">
+          <div
+            className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-blue-500/20 text-blue-400 border border-blue-500/30"
+            style={{ boxShadow: '0 0 14px rgba(59,130,246,0.3)' }}
+          >
+            <AlarmClock size={20} strokeWidth={2.4} className="animate-bounce" />
           </div>
-
-          {/* Center Text: Bold Title + Subtitle */}
-          <div className="flex flex-col truncate">
-            <span className="text-xl font-bold tracking-tight text-white leading-tight">
-              Time's up
-            </span>
-            <span className="text-xs text-neutral-400 font-medium tracking-wide truncate mt-0.5">
-              Alarm • {formatTime12h(alarm.time).formatted} • {getTaskSubtitle()}
-            </span>
+          <div className="min-w-0">
+            <p className="text-[15px] font-black tracking-tight leading-tight text-white">
+              Wake Up · {formatted}
+            </p>
+            <p className="text-[11px] text-neutral-400 font-semibold truncate mt-0.5">
+              Task: {getTaskSubtitle()}
+            </p>
           </div>
         </div>
 
-        {/* Right: Circular Action Buttons matching image */}
-        <div className="flex items-center space-x-2 shrink-0 ml-3">
-          {/* Blue Circular Action Button */}
+        {/* Right: Actions */}
+        <div className="flex items-center gap-2 shrink-0 ml-3">
           <button
             onClick={(e) => {
               e.stopPropagation();
+              Haptics.medium();
               onPress?.();
             }}
-            className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 active:scale-90 text-white flex items-center justify-center transition-all shadow-md"
-            aria-label="Start Task"
+            aria-label="Start task"
+            className="
+              w-9 h-9 rounded-full bg-blue-600 text-white
+              flex items-center justify-center
+              hover:bg-blue-500 press-pop
+              shadow-lg shadow-blue-500/30
+            "
           >
-            <RotateCw size={18} className="stroke-[2.5]" />
+            <RotateCw size={16} strokeWidth={2.6} />
           </button>
-
-          {/* Dark Circular Dismiss Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (onDismiss) {
-                onDismiss();
-              } else {
-                onPress?.();
-              }
+              Haptics.light();
+              (onDismiss ?? onPress)?.();
             }}
-            className="w-10 h-10 rounded-full bg-neutral-700/70 hover:bg-neutral-600 active:scale-90 text-neutral-300 flex items-center justify-center transition-all"
             aria-label="Close"
+            className="
+              w-9 h-9 rounded-full text-neutral-300
+              flex items-center justify-center
+              hover:bg-white/10 press-spring
+            "
+            style={{ background: 'rgba(255,255,255,0.08)' }}
           >
-            <X size={18} className="stroke-[2.5]" />
+            <X size={16} strokeWidth={2.6} />
           </button>
         </div>
       </div>

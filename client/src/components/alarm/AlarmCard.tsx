@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Alarm } from '../../types/alarm';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Dumbbell, Smartphone, Calculator, Sun, Scan } from 'lucide-react';
 import { formatTime12h } from '../../utils/timeFormat';
+import { Haptics } from '../../services/HapticFeedback';
 
 interface AlarmCardProps {
   alarm: Alarm;
@@ -12,13 +13,50 @@ interface AlarmCardProps {
 
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-export const AlarmCard: React.FC<AlarmCardProps> = ({
-  alarm,
-  onToggle,
-  onEdit,
-  onDelete,
-}) => {
+const taskMeta: Record<
+  string,
+  { label: string; icon: React.ReactNode; bg: string; text: string; border: string }
+> = {
+  PUSHUP_MATH: {
+    label: 'Push-ups',
+    icon: <Dumbbell size={12} strokeWidth={2.4} />,
+    bg: 'bg-purple-500/10',
+    text: 'text-purple-400',
+    border: 'border-purple-500/20',
+  },
+  CLICK_SHAKE: {
+    label: 'Taps + Shake',
+    icon: <Smartphone size={12} strokeWidth={2.4} />,
+    bg: 'bg-amber-500/10',
+    text: 'text-amber-400',
+    border: 'border-amber-500/20',
+  },
+  MATH: {
+    label: 'Math Puzzles',
+    icon: <Calculator size={12} strokeWidth={2.4} />,
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-400',
+    border: 'border-emerald-500/20',
+  },
+  BRIGHTNESS: {
+    label: 'Turn on Lights',
+    icon: <Sun size={12} strokeWidth={2.4} />,
+    bg: 'bg-yellow-500/10',
+    text: 'text-yellow-400',
+    border: 'border-yellow-500/20',
+  },
+  OBJECT_MATCH: {
+    label: 'Scan Object',
+    icon: <Scan size={12} strokeWidth={2.4} />,
+    bg: 'bg-sky-500/10',
+    text: 'text-sky-400',
+    border: 'border-sky-500/20',
+  },
+};
+
+export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, onDelete }) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [pressed, setPressed] = useState(false);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isLongPressRef = useRef(false);
   const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -26,39 +64,34 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
   const { timeStr, period } = formatTime12h(alarm.time);
 
   const getSubtitle = () => {
-    if (alarm.daysOfWeek.length === 0) {
-      return 'Ring once';
-    }
-    if (alarm.daysOfWeek.length === 7) {
-      return 'Every day';
-    }
-    if (alarm.daysOfWeek.length === 5 && [1, 2, 3, 4, 5].every(d => alarm.daysOfWeek.includes(d))) {
+    if (alarm.daysOfWeek.length === 0) return 'Ring once';
+    if (alarm.daysOfWeek.length === 7) return 'Every day';
+    if (alarm.daysOfWeek.length === 5 && [1, 2, 3, 4, 5].every((d) => alarm.daysOfWeek.includes(d)))
       return 'Weekdays';
-    }
-    if (alarm.daysOfWeek.length === 2 && [0, 6].every(d => alarm.daysOfWeek.includes(d))) {
+    if (alarm.daysOfWeek.length === 2 && [0, 6].every((d) => alarm.daysOfWeek.includes(d)))
       return 'Weekends';
-    }
-    return alarm.daysOfWeek.map(d => DAYS_SHORT[d]).join(', ');
+    return alarm.daysOfWeek.map((d) => DAYS_SHORT[d]).join(', ');
   };
 
+  const task = taskMeta[alarm.dismissalType] ?? taskMeta['PUSHUP_MATH'];
 
-  // Long press handlers
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
     isLongPressRef.current = false;
+    setPressed(true);
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
     touchStartPosRef.current = { x: clientX, y: clientY };
 
     longPressTimerRef.current = setTimeout(() => {
       isLongPressRef.current = true;
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([60]);
-      }
+      Haptics.heavy();
+      setPressed(false);
       setShowDeleteModal(true);
-    }, 550);
+    }, 480);
   };
 
   const handleTouchEnd = () => {
+    setPressed(false);
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
@@ -67,13 +100,10 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!longPressTimerRef.current) return;
-    const moveX = e.touches[0].clientX;
-    const moveY = e.touches[0].clientY;
-    const diffX = Math.abs(moveX - touchStartPosRef.current.x);
-    const diffY = Math.abs(moveY - touchStartPosRef.current.y);
-
-    // If user is scrolling, cancel long press
-    if (diffX > 10 || diffY > 10) {
+    const diffX = Math.abs(e.touches[0].clientX - touchStartPosRef.current.x);
+    const diffY = Math.abs(e.touches[0].clientY - touchStartPosRef.current.y);
+    if (diffX > 8 || diffY > 8) {
+      setPressed(false);
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
@@ -84,23 +114,27 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
       isLongPressRef.current = false;
       return;
     }
+    Haptics.light();
     onEdit(alarm);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate([60]);
-    }
+    Haptics.heavy();
     setShowDeleteModal(true);
   };
 
   const confirmDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
+    Haptics.error();
     setShowDeleteModal(false);
-    if (onDelete) {
-      onDelete(alarm.id);
-    }
+    onDelete?.(alarm.id);
+  };
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    Haptics.selection();
+    onToggle(alarm.id);
   };
 
   return (
@@ -113,107 +147,121 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({
         onMouseDown={handleTouchStart}
         onMouseUp={handleTouchEnd}
         onContextMenu={handleContextMenu}
-        className="w-full rounded-2xl p-5 mb-3 transition-all duration-200 cursor-pointer select-none bg-theme-card border border-theme-border shadow-sm hover:opacity-95 active:scale-[0.99]"
+        style={{
+          transform: pressed ? 'scale(0.975)' : 'scale(1)',
+          transition: pressed
+            ? 'transform 90ms cubic-bezier(0.34,1.56,0.64,1), opacity 90ms ease, box-shadow 90ms ease'
+            : 'transform 260ms cubic-bezier(0.34,1.56,0.64,1), opacity 260ms ease, box-shadow 260ms ease',
+          opacity: pressed ? 0.88 : alarm.isEnabled ? 1 : 0.58,
+        }}
+        className={`
+          w-full rounded-[26px] p-5 mb-3.5 cursor-pointer select-none
+          card-premium stagger-item
+          ${alarm.isEnabled ? 'ring-1 ring-blue-500/10' : ''}
+        `}
       >
         <div className="flex items-center justify-between">
-          {/* Left Side: Time and Schedule */}
-          <div className="flex-1 pr-4">
-            <div className="flex items-baseline space-x-1.5">
+          {/* ── Left: Time & Information ── */}
+          <div className="flex-1 pr-4 min-w-0">
+            <div className="flex items-baseline space-x-2">
               <span
-                className={`text-4xl sm:text-5xl font-normal tracking-tight font-tabular transition-colors ${
+                className={`text-[46px] leading-none font-black tracking-tight font-tabular transition-colors duration-220 ${
                   alarm.isEnabled ? 'text-theme-text' : 'text-theme-muted'
                 }`}
               >
                 {timeStr}
               </span>
               <span
-                className={`text-sm font-semibold tracking-wider transition-colors ${
-                  alarm.isEnabled ? 'text-theme-text' : 'text-theme-muted'
+                className={`text-sm font-bold tracking-wider uppercase transition-colors duration-220 ${
+                  alarm.isEnabled ? 'text-blue-500' : 'text-theme-muted'
                 }`}
               >
                 {period}
               </span>
             </div>
 
-            <div className="mt-1 flex items-center space-x-2 text-xs text-theme-subtext">
-              <span>{getSubtitle()}</span>
-              <span>•</span>
-              <span className="text-blue-400 font-semibold">
-                {alarm.dismissalType === 'PUSHUP_MATH'
-                  ? `Push-ups (${alarm.pushupTarget || 5})`
-                  : alarm.dismissalType === 'CLICK_SHAKE'
-                  ? '100 Taps & Shake'
-                  : alarm.dismissalType === 'MATH'
-                  ? 'Math Problems'
-                  : alarm.dismissalType === 'BRIGHTNESS'
-                  ? 'Room Light'
-                  : alarm.dismissalType === 'OBJECT_MATCH'
-                  ? 'Scan Object'
-                  : 'Push-ups (5)'}
-              </span>
+            {/* Label, Schedule & Task Badge */}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              {alarm.label && alarm.label !== 'Alarm' && (
+                <span className="text-xs font-bold text-theme-text truncate max-w-[140px]">
+                  {alarm.label}
+                </span>
+              )}
+
+              <span className="text-xs text-theme-subtext font-medium">{getSubtitle()}</span>
+
+              <div
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${task.bg} ${task.text} ${task.border}`}
+              >
+                {task.icon}
+                <span>
+                  {task.label}
+                  {alarm.dismissalType === 'PUSHUP_MATH' && alarm.pushupTarget
+                    ? ` ×${alarm.pushupTarget}`
+                    : ''}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Right Side: Capsule Switch Toggle */}
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle(alarm.id);
-            }}
-            className="cursor-pointer"
-          >
+          {/* ── Right: Tactile Spring Toggle Switch ── */}
+          <div onClick={handleToggle} className="shrink-0 press-spring pl-1">
             <div
-              className={`w-[52px] h-[30px] rounded-full transition-colors duration-200 relative p-[3px] flex items-center ${
-                alarm.isEnabled
-                  ? 'bg-blue-500'
-                  : 'bg-neutral-300 dark:bg-[#3A3A3C]'
-              }`}
+              className={`
+                w-[54px] h-[32px] rounded-full relative p-[3px] flex items-center cursor-pointer
+                toggle-track
+                ${
+                  alarm.isEnabled
+                    ? 'bg-blue-600 shadow-[0_0_16px_rgba(37,99,235,0.45)]'
+                    : 'bg-[var(--toggle-off)]'
+                }
+              `}
             >
               <div
-                className={`w-6 h-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
-                  alarm.isEnabled ? 'translate-x-[22px]' : 'translate-x-0'
-                }`}
+                className={`
+                  w-[26px] h-[26px] rounded-full bg-white toggle-thumb shadow-md
+                  ${alarm.isEnabled ? 'translate-x-[22px]' : 'translate-x-0'}
+                `}
               />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Long Press Delete Confirmation Modal */}
+      {/* ── Long-Press Delete Modal ── */}
       {showDeleteModal && (
         <div
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowDeleteModal(false);
-          }}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in select-none"
+          onClick={() => setShowDeleteModal(false)}
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-end sm:items-center justify-center p-4 animate-fade-in"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-[#1a1a1c] border border-white/10 rounded-3xl p-6 text-center text-white shadow-2xl space-y-4"
+            className="w-full max-w-sm bg-[#14151C] border border-white/10 rounded-3xl p-6 text-center text-white shadow-2xl space-y-4 sheet-up"
           >
-            <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 flex items-center justify-center mx-auto shadow-inner">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/12 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto shadow-inner">
               <Trash2 size={26} />
             </div>
-
             <div>
-              <h3 className="text-lg font-bold text-white">Delete Alarm?</h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                Are you sure you want to remove the <strong className="text-white">{timeStr} {period}</strong> alarm ({alarm.label || 'Alarm'})?
+              <h3 className="text-lg font-extrabold text-white">Delete Alarm?</h3>
+              <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                Remove the{' '}
+                <strong className="text-white font-semibold">
+                  {timeStr} {period}
+                </strong>{' '}
+                alarm{alarm.label ? ` — "${alarm.label}"` : ''}?
               </p>
             </div>
-
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2.5 pt-1">
               <button
                 onClick={confirmDelete}
-                className="w-full py-3 bg-red-600 hover:bg-red-700 active:scale-98 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center space-x-2"
+                className="w-full py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl text-sm font-extrabold transition-all shadow-lg shadow-red-500/25 press-spring flex items-center justify-center gap-2"
               >
-                <Trash2 size={15} />
-                <span>Delete Alarm</span>
+                <Trash2 size={16} />
+                Delete Alarm
               </button>
               <button
                 onClick={() => setShowDeleteModal(false)}
-                className="w-full py-2.5 bg-white/10 hover:bg-white/15 text-neutral-300 rounded-xl text-xs font-semibold transition-colors"
+                className="w-full py-3 bg-white/8 hover:bg-white/12 text-neutral-300 rounded-2xl text-sm font-semibold transition-colors press-spring"
               >
                 Cancel
               </button>

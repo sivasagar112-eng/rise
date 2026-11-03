@@ -2,7 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../services/StorageService';
 import { synth } from '../../services/WebAudioSynth';
 import { GoogleAuthService } from '../../services/GoogleAuthService';
-import { Volume2, ShieldCheck, LogOut, AlertCircle, Camera, FlipHorizontal, Check } from 'lucide-react';
+import {
+  Volume2,
+  ShieldCheck,
+  LogOut,
+  AlertCircle,
+  Camera,
+  FlipHorizontal,
+  Check,
+  Flame,
+  Award,
+} from 'lucide-react';
+import { Haptics } from '../../services/HapticFeedback';
 
 export const ProfileScreen: React.FC = () => {
   const [user, setUser] = useState(StorageService.getUser());
@@ -14,6 +25,15 @@ export const ProfileScreen: React.FC = () => {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const testVideoRef = useRef<HTMLVideoElement | null>(null);
   const testStreamRef = useRef<MediaStream | null>(null);
+
+  const [streak, setStreak] = useState<number>(0);
+  const [totalDismissals, setTotalDismissals] = useState<number>(0);
+
+  useEffect(() => {
+    setStreak(StorageService.calculateStreak());
+    const logs = StorageService.getWakeLogs();
+    setTotalDismissals(logs.filter((l) => l.success).length);
+  }, []);
 
   // Restore Google user session if already signed into Firebase on device
   useEffect(() => {
@@ -39,16 +59,20 @@ export const ProfileScreen: React.FC = () => {
   // Check camera device access on mount
   useEffect(() => {
     if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-      navigator.mediaDevices.enumerateDevices().then((devices) => {
-        const hasCamera = devices.some((d) => d.kind === 'videoinput' && d.label !== '');
-        if (hasCamera) {
-          setCameraStatus('Granted ✓');
-        }
-      }).catch(() => {});
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then((devices) => {
+          const hasCamera = devices.some((d) => d.kind === 'videoinput' && d.label !== '');
+          if (hasCamera) {
+            setCameraStatus('Granted ✓');
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 
   const handleTestAudio = () => {
+    Haptics.medium();
     if (isPlayingAudioTest) {
       synth.stopAlarm();
       setIsPlayingAudioTest(false);
@@ -81,7 +105,6 @@ export const ProfileScreen: React.FC = () => {
       setCameraStatus('Granted ✓');
     } catch (err) {
       console.warn('Profile camera test error:', err);
-      // Fallback to basic video constraint
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         testStreamRef.current = stream;
@@ -97,17 +120,20 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const handleTestCamera = async () => {
+    Haptics.light();
     setIsCameraModalOpen(true);
     await startCameraStream(facingMode);
   };
 
   const handleToggleFacingMode = async () => {
+    Haptics.selection();
     const nextMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(nextMode);
     await startCameraStream(nextMode);
   };
 
   const handleCloseCameraTest = () => {
+    Haptics.light();
     if (testStreamRef.current) {
       testStreamRef.current.getTracks().forEach((t) => t.stop());
       testStreamRef.current = null;
@@ -116,6 +142,7 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const handleGoogleSignIn = async () => {
+    Haptics.medium();
     setAuthError(null);
     setGoogleLoading(true);
     try {
@@ -129,6 +156,7 @@ export const ProfileScreen: React.FC = () => {
       };
       StorageService.saveUser(profile as any);
       setUser(profile as any);
+      Haptics.success();
     } catch (err: unknown) {
       console.error('Google Sign-In failed:', err);
       const msg = err instanceof Error ? err.message : 'Google Sign-In failed';
@@ -141,63 +169,112 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    Haptics.heavy();
     await GoogleAuthService.signOut();
     StorageService.saveUser(null);
     setUser(null);
   };
 
   return (
-    <div className="w-full max-w-md mx-auto py-4 space-y-6 select-none animate-fade-in">
-      {/* Profile Header */}
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-theme-text">
-          Profile
-        </h2>
+    <div className="w-full max-w-md mx-auto py-2 space-y-5 select-none animate-fade-in">
+      {/* ── Profile Title ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black tracking-tight text-theme-text leading-tight">
+            Profile &amp; Stats
+          </h2>
+          <p className="text-xs text-theme-subtext mt-0.5">
+            Your wake streak, credentials, and diagnostic sensors.
+          </p>
+        </div>
       </div>
 
-      {/* Account Card */}
-      <div className="rounded-2xl p-5 bg-theme-card border border-theme-border shadow-sm space-y-4">
-        <div className="text-xs font-bold tracking-wider uppercase text-theme-subtext">
-          ACCOUNT
+      {/* ── Wake Discipline Streak & Stats Cards ── */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Streak Card */}
+        <div className="p-4 rounded-3xl card-premium flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-theme-subtext">
+              Wake Streak
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center">
+              <Flame size={18} className="animate-pulse" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="text-3xl font-black font-tabular tracking-tight text-theme-text">
+              {streak}
+            </span>
+            <span className="text-xs text-theme-subtext ml-1.5 font-bold">days</span>
+          </div>
+        </div>
+
+        {/* Total Dismissals Card */}
+        <div className="p-4 rounded-3xl card-premium flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-theme-subtext">
+              Completed
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-500 flex items-center justify-center">
+              <Award size={18} />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="text-3xl font-black font-tabular tracking-tight text-theme-text">
+              {totalDismissals}
+            </span>
+            <span className="text-xs text-theme-subtext ml-1.5 font-bold">risen</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Account Card ── */}
+      <div className="rounded-3xl p-5 card-premium space-y-4">
+        <div className="text-[10px] font-black tracking-widest uppercase text-theme-subtext">
+          Account Status
         </div>
 
         {user ? (
-          <div className="space-y-3">
-            <div className="flex items-center space-x-3">
+          <div className="space-y-3.5">
+            <div className="flex items-center space-x-3.5">
               {(user as any).photoUrl ? (
                 <img
                   src={(user as any).photoUrl}
                   alt="Avatar"
-                  className="w-10 h-10 rounded-full object-cover border border-theme-border"
+                  className="w-12 h-12 rounded-2xl object-cover border-2 border-blue-500/20 shadow-md"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold text-base">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-md">
                   {((user as any).name || user.email || 'U').charAt(0).toUpperCase()}
                 </div>
               )}
-              <div>
-                <div className="text-theme-text font-bold text-sm">{(user as any).name || user.email}</div>
-                <div className="text-xs text-theme-subtext">{(user as any).name ? user.email : 'Google Account'}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-theme-text font-black text-sm truncate">
+                  {(user as any).name || user.email}
+                </div>
+                <div className="text-xs text-theme-subtext truncate">
+                  {(user as any).name ? user.email : 'Google Account'}
+                </div>
               </div>
             </div>
 
             <button
               onClick={handleLogout}
-              className="mt-2 w-full py-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 text-xs font-semibold flex items-center justify-center space-x-2 transition-colors"
+              className="w-full py-3 rounded-2xl border border-red-500/30 text-red-500 hover:bg-red-500/10 text-xs font-black flex items-center justify-center space-x-2 press-spring transition-colors"
             >
-              <LogOut size={14} />
+              <LogOut size={15} />
               <span>Sign Out</span>
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-theme-subtext">
-              Sign in with your Google account to access your profile.
+            <p className="text-xs text-theme-subtext leading-relaxed">
+              Sign in with your Google account to backup your alarms and wake-up records securely.
             </p>
 
             {authError && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center space-x-2">
-                <AlertCircle size={14} className="shrink-0" />
+              <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center space-x-2">
+                <AlertCircle size={15} className="shrink-0" />
                 <span>{authError}</span>
               </div>
             )}
@@ -206,7 +283,7 @@ export const ProfileScreen: React.FC = () => {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={googleLoading}
-              className="w-full py-2.5 px-4 rounded-xl bg-theme-bg border border-theme-border hover:bg-theme-border/50 active:scale-[0.98] text-theme-text font-semibold text-xs transition-all flex items-center justify-center space-x-2.5 disabled:opacity-50 shadow-sm"
+              className="w-full py-3 px-4 rounded-2xl glass-card hover:bg-theme-border/40 press-spring text-theme-text font-black text-xs transition-all flex items-center justify-center space-x-2.5 disabled:opacity-50 shadow-sm"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -232,34 +309,34 @@ export const ProfileScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Hardware Diagnostics Card */}
-      <div className="rounded-2xl p-5 bg-theme-card border border-theme-border shadow-sm space-y-4">
-        <div className="text-xs font-bold tracking-wider uppercase text-theme-subtext">
-          HARDWARE & SENSORS
+      {/* ── Hardware Diagnostics Card ── */}
+      <div className="rounded-3xl p-5 card-premium space-y-3.5">
+        <div className="text-[10px] font-black tracking-widest uppercase text-theme-subtext">
+          Hardware &amp; Sensors Test
         </div>
 
         <div className="flex items-center justify-between py-1">
           <div>
-            <div className="text-theme-text text-sm font-semibold">Rise Alarm Sound</div>
-            <div className="text-xs text-theme-subtext">Continuous wake-up audio test</div>
+            <div className="text-theme-text text-sm font-extrabold">Audio Output</div>
+            <div className="text-xs text-theme-subtext">Continuous wake-up chime test</div>
           </div>
           <button
             onClick={handleTestAudio}
-            className="px-3.5 py-1.5 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-xs font-medium hover:opacity-80 transition-opacity flex items-center space-x-1.5"
+            className="px-4 py-2 rounded-2xl glass-pill text-theme-text text-xs font-black press-spring flex items-center space-x-1.5"
           >
             <Volume2 size={14} />
-            <span>{isPlayingAudioTest ? 'Playing...' : 'Test Sound'}</span>
+            <span>{isPlayingAudioTest ? 'Playing...' : 'Test Audio'}</span>
           </button>
         </div>
 
-        <div className="flex items-center justify-between py-1 border-t border-theme-border pt-3">
+        <div className="flex items-center justify-between py-1 border-t border-theme-border/50 pt-3">
           <div>
-            <div className="text-theme-text text-sm font-semibold">Camera Access</div>
+            <div className="text-theme-text text-sm font-extrabold">Camera Sensor</div>
             <div className="text-xs text-theme-subtext">Status: {cameraStatus}</div>
           </div>
           <button
             onClick={handleTestCamera}
-            className="px-3.5 py-1.5 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-xs font-medium hover:opacity-80 transition-opacity flex items-center space-x-1.5"
+            className="px-4 py-2 rounded-2xl glass-pill text-theme-text text-xs font-black press-spring flex items-center space-x-1.5"
           >
             <Camera size={14} />
             <span>Test Camera</span>
@@ -267,24 +344,28 @@ export const ProfileScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Privacy Guarantee */}
-      <div className="rounded-2xl p-4 bg-theme-card border border-theme-border shadow-sm flex items-start space-x-3">
-        <ShieldCheck size={20} className="text-blue-500 shrink-0 mt-0.5" />
+      {/* ── Privacy Guarantee ── */}
+      <div className="rounded-3xl p-4.5 card-premium flex items-start space-x-3.5">
+        <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 shrink-0">
+          <ShieldCheck size={20} />
+        </div>
         <div className="text-xs text-theme-subtext leading-relaxed">
-          <strong className="text-theme-text block mb-0.5">100% Client-Side Privacy</strong>
-          All camera vision (pushups, brightness, face detection) executes locally on your device. Zero camera frames or videos are ever uploaded.
+          <strong className="text-theme-text font-black block mb-0.5">
+            100% On-Device Privacy
+          </strong>
+          All computer vision AI processing (push-ups, lighting detection, object scanning) runs entirely on-device using local TensorFlow models.
         </div>
       </div>
 
       {/* ── Live Camera Test Modal ── */}
       {isCameraModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-5 animate-fade-in">
-          <div className="w-full max-w-xs bg-[#1a1a1c] border border-white/10 rounded-3xl p-5 text-center shadow-2xl text-white">
+          <div className="w-full max-w-xs bg-[#161722] border border-white/10 rounded-3xl p-5 text-center shadow-2xl text-white sheet-up">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-bold text-white">Camera Preview</h3>
+              <h3 className="text-base font-black text-white">Camera Preview</h3>
               <button
                 onClick={handleToggleFacingMode}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-300 transition-colors flex items-center space-x-1 text-xs"
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-neutral-300 transition-colors flex items-center space-x-1 text-xs press-spring"
                 title="Flip camera"
               >
                 <FlipHorizontal size={14} />
@@ -298,15 +379,17 @@ export const ProfileScreen: React.FC = () => {
                 autoPlay
                 playsInline
                 muted
-                className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+                className={`w-full h-full object-cover ${
+                  facingMode === 'user' ? 'transform -scale-x-100' : ''
+                }`}
               />
             </div>
 
             <button
               onClick={handleCloseCameraTest}
-              className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center space-x-1.5"
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-2xl transition-all shadow-md press-spring flex items-center justify-center space-x-1.5"
             >
-              <Check size={15} />
+              <Check size={16} />
               <span>Done (Camera Working ✓)</span>
             </button>
           </div>
