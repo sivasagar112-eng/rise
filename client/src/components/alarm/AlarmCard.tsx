@@ -236,27 +236,23 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, o
             onClick={() => setShowDeleteModal(false)}
             className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-fade-in"
             style={{
-              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              backgroundColor: 'var(--surface-overlay)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
             }}
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-xs sm:max-w-sm rounded-[32px] p-6 text-center text-white shadow-2xl space-y-4 animate-scale-in"
-              style={{
-                backgroundColor: '#161722',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-              }}
+              className="w-full max-w-xs sm:max-w-sm rounded-[32px] p-6 text-center shadow-2xl space-y-4 animate-scale-in bg-theme-card border border-theme-card-border text-theme-text"
             >
-              <div className="w-14 h-14 rounded-2xl bg-red-500/15 border border-red-500/25 text-red-400 flex items-center justify-center mx-auto shadow-inner">
+              <div className="w-14 h-14 rounded-2xl bg-red-500/15 border border-red-500/25 text-red-500 flex items-center justify-center mx-auto shadow-inner">
                 <Trash2 size={26} />
               </div>
               <div>
-                <h3 className="text-xl font-black text-white">Delete Alarm?</h3>
-                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                <h3 className="text-xl font-black text-theme-text">Delete Alarm?</h3>
+                <p className="text-xs text-theme-subtext mt-1.5 leading-relaxed">
                   Remove the{' '}
-                  <strong className="text-white font-semibold">
+                  <strong className="text-theme-text font-semibold">
                     {timeStr} {period}
                   </strong>{' '}
                   alarm{alarm.label && alarm.label !== 'Alarm' ? ` — "${alarm.label}"` : ''}?
@@ -272,7 +268,7 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, o
                 </button>
                 <button
                   onClick={() => setShowDeleteModal(false)}
-                  className="w-full py-3 bg-white/10 hover:bg-white/15 text-neutral-200 rounded-2xl text-sm font-bold transition-colors press-spring"
+                  className="w-full py-3 bg-theme-border/50 hover:bg-theme-border text-theme-subtext hover:text-theme-text rounded-2xl text-sm font-bold transition-colors press-spring"
                 >
                   Cancel
                 </button>

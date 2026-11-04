@@ -61,21 +61,19 @@ export const NextAlarmToast: React.FC<NextAlarmToastProps> = ({ toast, onDismiss
         className="
           flex items-center gap-2.5 px-4 py-2.5
           rounded-full
-          border border-white/15
-          text-white
+          border border-theme-card-border
+          bg-theme-card text-theme-text
+          shadow-card
         "
         style={{
-          background: 'rgba(18, 19, 26, 0.94)',
-          backdropFilter: 'blur(28px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-          boxShadow:
-            '0 12px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
         }}
       >
-        <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 border border-blue-500/30">
-          <Clock size={12} className="text-blue-400" strokeWidth={2.6} />
+        <div className="w-6 h-6 rounded-full bg-blue-500/15 flex items-center justify-center shrink-0 border border-blue-500/25">
+          <Clock size={12} className="text-blue-500" strokeWidth={2.6} />
         </div>
-        <span className="text-xs font-bold tracking-tight text-neutral-100 whitespace-nowrap">
+        <span className="text-xs font-bold tracking-tight text-theme-text whitespace-nowrap">
           {toast?.text}
         </span>
       </div>

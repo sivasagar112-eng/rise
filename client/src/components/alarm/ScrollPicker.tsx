@@ -309,8 +309,8 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
         <span
           className={`font-black tracking-tight transition-all duration-150 ${
             isSelected
-              ? 'text-4xl sm:text-[42px] text-white drop-shadow-[0_2px_12px_rgba(255,255,255,0.35)]'
-              : 'text-3xl text-neutral-500'
+              ? 'text-4xl sm:text-[42px] text-theme-text font-black drop-shadow-sm'
+              : 'text-3xl text-theme-muted font-bold'
           }`}
         >
           {item}
@@ -340,16 +340,13 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
     >
       {/* Center Magnifier Lens / Band */}
       <div
-        className="absolute w-full rounded-2xl pointer-events-none"
+        className="absolute w-full rounded-2xl pointer-events-none bg-blue-500/10 border border-blue-500/25 shadow-sm"
         style={{
           height: itemHeight,
           top: '50%',
           transform: 'translateY(-50%)',
-          background: 'rgba(255, 255, 255, 0.08)',
-          border: '1px solid rgba(255, 255, 255, 0.16)',
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
-          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.3)',
           zIndex: 0,
         }}
       />

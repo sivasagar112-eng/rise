@@ -127,17 +127,14 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
       onClick={handleClose}
       className="fixed inset-0 z-50 animate-fade-in"
       style={{
-        background: 'rgba(0,0,0,0.85)',
+        backgroundColor: 'var(--surface-overlay)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full h-full select-none overflow-y-auto text-white flex flex-col sheet-up scroll-container"
-        style={{
-          background: 'linear-gradient(180deg, #101117 0%, #08090D 100%)',
-        }}
+        className="w-full h-full select-none overflow-y-auto bg-theme-bg text-theme-text flex flex-col sheet-up scroll-container"
       >
         {/* ── Gesture Drag Handle ── */}
         <div
@@ -145,10 +142,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
           onTouchEnd={handleTouchEnd}
           className="pt-3 pb-1 flex justify-center cursor-pointer shrink-0"
         >
-          <div
-            className="w-12 h-1.5 rounded-full transition-opacity hover:opacity-100"
-            style={{ background: 'rgba(255,255,255,0.22)' }}
-          />
+          <div className="w-12 h-1.5 rounded-full bg-theme-border opacity-70 transition-opacity hover:opacity-100" />
         </div>
 
         {step === 'TIME' ? (
@@ -160,30 +154,19 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
             <div
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
-              className="sticky top-0 z-10 backdrop-blur-xl border-b px-6 pt-3 pb-4"
-              style={{
-                background: 'rgba(16,17,23,0.95)',
-                borderColor: 'rgba(255,255,255,0.08)',
-              }}
+              className="sticky top-0 z-10 backdrop-blur-xl border-b border-theme-border px-6 pt-3 pb-4 bg-theme-bg/95"
             >
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
-                    <span
-                      className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
-                      style={{
-                        background: 'rgba(37,99,235,0.2)',
-                        color: '#60a5fa',
-                        border: '1px solid rgba(37,99,235,0.4)',
-                      }}
-                    >
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
                       Step 1 of 2
                     </span>
-                    <span className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
+                    <span className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext">
                       {alarm ? 'Edit Alarm' : 'New Alarm'}
                     </span>
                   </div>
-                  <h2 className="text-3xl font-black tracking-tight text-white leading-none">
+                  <h2 className="text-3xl font-black tracking-tight text-theme-text leading-none">
                     {alarm ? 'Configure' : 'Set Alarm'}
                   </h2>
                 </div>
@@ -191,11 +174,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   type="button"
                   onClick={handleClose}
                   aria-label="Close"
-                  className="mt-1 w-10 h-10 flex items-center justify-center rounded-full text-neutral-400 hover:text-white press-spring transition-colors"
-                  style={{
-                    background: 'rgba(255,255,255,0.07)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                  }}
+                  className="mt-1 w-10 h-10 flex items-center justify-center rounded-full glass-pill text-theme-subtext hover:text-theme-text press-spring transition-colors"
                 >
                   <X size={18} />
                 </button>
@@ -206,17 +185,10 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
             <div className="px-6 py-5 space-y-6 animate-fade-in flex-1">
               {/* Centered 3D Wheel Time Picker */}
               <div className="flex flex-col items-center py-2">
-                <p className="text-[10px] font-bold tracking-widest uppercase text-neutral-400 mb-3">
+                <p className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext mb-3">
                   Wake-Up Time
                 </p>
-                <div
-                  className="inline-flex items-center justify-center gap-3 p-4 rounded-3xl"
-                  style={{
-                    background: 'rgba(255,255,255,0.035)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-                  }}
-                >
+                <div className="inline-flex items-center justify-center gap-3 p-4 rounded-3xl bg-theme-card border border-theme-card-border shadow-card">
                   {/* Hour */}
                   <div className="flex flex-col items-center w-20">
                     <ScrollPicker
@@ -224,12 +196,12 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       selectedIndex={hour12 - 1}
                       onChange={(index) => setHour12(index + 1)}
                     />
-                    <span className="text-[10px] text-neutral-500 mt-2 uppercase font-extrabold tracking-widest">
+                    <span className="text-[10px] text-theme-subtext mt-2 uppercase font-extrabold tracking-widest">
                       Hour
                     </span>
                   </div>
 
-                  <span className="text-4xl font-extralight text-neutral-600 pb-5 select-none animate-colon">
+                  <span className="text-4xl font-extralight text-theme-subtext pb-5 select-none animate-colon">
                     :
                   </span>
 
@@ -240,19 +212,13 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       selectedIndex={parseInt(minute, 10) || 0}
                       onChange={(index) => setMinute(String(index).padStart(2, '0'))}
                     />
-                    <span className="text-[10px] text-neutral-500 mt-2 uppercase font-extrabold tracking-widest">
+                    <span className="text-[10px] text-theme-subtext mt-2 uppercase font-extrabold tracking-widest">
                       Min
                     </span>
                   </div>
 
                   {/* AM / PM Segmented Control */}
-                  <div
-                    className="flex flex-col gap-1.5 ml-1 p-1 rounded-2xl"
-                    style={{
-                      background: 'rgba(0,0,0,0.4)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
+                  <div className="flex flex-col gap-1.5 ml-1 p-1 rounded-2xl bg-theme-bg border border-theme-border">
                     {(['AM', 'PM'] as const).map((p) => {
                       const isSelected = period === p;
                       return (
@@ -266,7 +232,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                           className={`px-4 py-2.5 text-xs font-black rounded-xl press-spring transition-all duration-200 ${
                             isSelected
                               ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                              : 'text-neutral-400 hover:text-white'
+                              : 'text-theme-subtext hover:text-theme-text'
                           }`}
                         >
                           {p}
@@ -280,7 +246,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
               {/* Repeat Days Selector */}
               <div>
                 <div className="flex items-center justify-between mb-2.5">
-                  <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
+                  <label className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext">
                     Repeat Days
                   </label>
                   {/* Quick Presets */}
@@ -288,14 +254,14 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setDaysPreset('weekdays')}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white/5 text-neutral-400 hover:text-white press-spring"
+                      className="text-[10px] font-bold px-2.5 py-1 rounded-xl bg-theme-card border border-theme-card-border text-theme-subtext hover:text-theme-text press-spring"
                     >
                       Weekdays
                     </button>
                     <button
                       type="button"
                       onClick={() => setDaysPreset('all')}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white/5 text-neutral-400 hover:text-white press-spring"
+                      className="text-[10px] font-bold px-2.5 py-1 rounded-xl bg-theme-card border border-theme-card-border text-theme-subtext hover:text-theme-text press-spring"
                     >
                       Everyday
                     </button>
@@ -314,7 +280,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                         className={`h-11 text-xs font-black rounded-2xl press-spring transition-all duration-200 flex flex-col items-center justify-center ${
                           isSelected
                             ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/35 ring-1 ring-blue-400/40'
-                            : 'bg-white/5 text-neutral-400 border border-white/8 hover:text-white hover:bg-white/10'
+                            : 'bg-theme-card text-theme-subtext border border-theme-card-border hover:text-theme-text hover:bg-theme-card/80'
                         }`}
                       >
                         <span>{d.label}</span>
@@ -326,7 +292,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
               {/* Alarm Label */}
               <div>
-                <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400 block mb-2">
+                <label className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext block mb-2">
                   Alarm Label
                 </label>
                 <input
@@ -335,26 +301,14 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   onChange={(e) => setLabel(e.target.value)}
                   maxLength={30}
                   placeholder="e.g. Morning Rise"
-                  className="w-full px-4 py-3.5 text-sm font-semibold rounded-2xl text-white placeholder:text-neutral-600 focus:outline-none transition-all"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.09)',
-                  }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(59,130,246,0.6)';
-                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.15)';
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
+                  className="w-full px-4 py-3.5 text-sm font-semibold rounded-2xl bg-theme-card border border-theme-card-border text-theme-text placeholder:text-theme-muted focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm"
                 />
               </div>
 
               {/* Volume Ramp & Pre-alarm */}
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/8">
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-theme-border">
                 <div>
-                  <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400 block mb-1.5">
+                  <label className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext block mb-1.5">
                     Volume Ramp
                   </label>
                   <select
@@ -363,15 +317,15 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       Haptics.tick();
                       setRampDuration(Number(e.target.value));
                     }}
-                    className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-2xl bg-[#161722] border border-white/10 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-2xl bg-theme-card border border-theme-card-border text-theme-text focus:outline-none focus:border-blue-500 transition-colors"
                   >
-                    <option value={15} className="bg-[#161722] text-white">15 seconds</option>
-                    <option value={30} className="bg-[#161722] text-white">30 seconds</option>
-                    <option value={60} className="bg-[#161722] text-white">60 seconds</option>
+                    <option value={15} className="bg-theme-card text-theme-text">15 seconds</option>
+                    <option value={30} className="bg-theme-card text-theme-text">30 seconds</option>
+                    <option value={60} className="bg-theme-card text-theme-text">60 seconds</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold tracking-widest uppercase text-neutral-400 block mb-1.5">
+                  <label className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext block mb-1.5">
                     Pre-Alarm
                   </label>
                   <select
@@ -380,12 +334,12 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       Haptics.tick();
                       setPreAlarmMinutes(Number(e.target.value));
                     }}
-                    className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-2xl bg-[#161722] border border-white/10 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-2xl bg-theme-card border border-theme-card-border text-theme-text focus:outline-none focus:border-blue-500 transition-colors"
                   >
-                    <option value={0} className="bg-[#161722] text-white">Off</option>
-                    <option value={5} className="bg-[#161722] text-white">5 mins before</option>
-                    <option value={10} className="bg-[#161722] text-white">10 mins before</option>
-                    <option value={15} className="bg-[#161722] text-white">15 mins before</option>
+                    <option value={0} className="bg-theme-card text-theme-text">Off</option>
+                    <option value={5} className="bg-theme-card text-theme-text">5 mins before</option>
+                    <option value={10} className="bg-theme-card text-theme-text">10 mins before</option>
+                    <option value={15} className="bg-theme-card text-theme-text">15 mins before</option>
                   </select>
                 </div>
               </div>
@@ -399,11 +353,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       Haptics.heavy();
                       onDelete(alarm.id);
                     }}
-                    className="w-13 h-13 flex items-center justify-center rounded-2xl text-neutral-400 hover:text-red-400 shrink-0 press-spring transition-colors"
-                    style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
+                    className="w-13 h-13 p-3.5 flex items-center justify-center rounded-2xl bg-theme-card border border-theme-card-border text-theme-subtext hover:text-red-500 shrink-0 press-spring transition-colors"
                     title="Delete alarm"
                   >
                     <Trash2 size={18} />
@@ -426,27 +376,27 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
              ════════════════════════════════════════════ */
           <div className="flex flex-col flex-1">
             {/* Header with Back button */}
-            <div className="sticky top-0 z-10 bg-[#101117]/95 backdrop-blur-xl border-b border-white/8 px-6 pt-3 pb-4">
+            <div className="sticky top-0 z-10 bg-theme-bg/95 backdrop-blur-xl border-b border-theme-border px-6 pt-3 pb-4">
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
                   <button
                     type="button"
                     onClick={handleBackStep}
                     aria-label="Back to time settings"
-                    className="mt-1 w-9 h-9 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-300 hover:text-white press-spring transition-colors"
+                    className="mt-1 w-9 h-9 flex items-center justify-center rounded-full glass-pill text-theme-subtext hover:text-theme-text press-spring transition-colors"
                   >
                     <ArrowLeft size={16} />
                   </button>
                   <div>
                     <div className="flex items-center space-x-2 mb-1">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
                         Step 2 of 2
                       </span>
-                      <span className="text-[10px] font-bold tracking-widest uppercase text-neutral-400">
+                      <span className="text-[10px] font-bold tracking-widest uppercase text-theme-subtext">
                         Dismissal Task
                       </span>
                     </div>
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-none">
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-theme-text leading-none">
                       Wake-Up Challenge
                     </h2>
                   </div>
@@ -455,7 +405,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   type="button"
                   onClick={handleClose}
                   aria-label="Close"
-                  className="mt-1 w-9 h-9 flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-400 hover:text-white press-spring transition-colors"
+                  className="mt-1 w-9 h-9 flex items-center justify-center rounded-full glass-pill text-theme-subtext hover:text-theme-text press-spring transition-colors"
                 >
                   <X size={16} />
                 </button>
@@ -464,9 +414,9 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
             {/* Body */}
             <div className="px-6 py-5 space-y-5 animate-fade-in flex-1">
-              <p className="text-xs text-neutral-400 leading-relaxed">
+              <p className="text-xs text-theme-subtext leading-relaxed">
                 Choose your dismissal challenge. You must complete it to silence the alarm at{' '}
-                <strong className="text-white">
+                <strong className="text-theme-text">
                   {hour12}:{minute} {period}
                 </strong>
                 .
@@ -484,7 +434,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-2.5 press-spring transition-all ${
                     dismissalType === 'PUSHUP_MATH'
                       ? 'bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40'
-                      : 'bg-white/4 border-white/8 hover:border-white/15'
+                      : 'bg-theme-card border-theme-card-border hover:border-theme-border'
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -492,18 +442,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       className={`p-2 rounded-xl ${
                         dismissalType === 'PUSHUP_MATH'
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white/8 text-neutral-400'
+                          : 'bg-theme-bg text-theme-subtext border border-theme-border'
                       }`}
                     >
                       <Dumbbell size={18} />
                     </div>
                     {dismissalType === 'PUSHUP_MATH' && (
-                      <Check size={16} className="text-blue-400" />
+                      <Check size={16} className="text-blue-500" />
                     )}
                   </div>
                   <div>
-                    <span className="text-xs font-black text-white block">Push-ups</span>
-                    <span className="text-[10px] text-neutral-400">AI Pose Camera</span>
+                    <span className="text-xs font-black text-theme-text block">Push-ups</span>
+                    <span className="text-[10px] text-theme-subtext">AI Pose Camera</span>
                   </div>
                 </button>
 
@@ -517,7 +467,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-2.5 press-spring transition-all ${
                     dismissalType === 'CLICK_SHAKE'
                       ? 'bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40'
-                      : 'bg-white/4 border-white/8 hover:border-white/15'
+                      : 'bg-theme-card border-theme-card-border hover:border-theme-border'
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -525,18 +475,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       className={`p-2 rounded-xl ${
                         dismissalType === 'CLICK_SHAKE'
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white/8 text-neutral-400'
+                          : 'bg-theme-bg text-theme-subtext border border-theme-border'
                       }`}
                     >
                       <Smartphone size={18} />
                     </div>
                     {dismissalType === 'CLICK_SHAKE' && (
-                      <Check size={16} className="text-blue-400" />
+                      <Check size={16} className="text-blue-500" />
                     )}
                   </div>
                   <div>
-                    <span className="text-xs font-black text-white block">Taps & Shake</span>
-                    <span className="text-[10px] text-neutral-400">100 Taps + Shake</span>
+                    <span className="text-xs font-black text-theme-text block">Taps & Shake</span>
+                    <span className="text-[10px] text-theme-subtext">100 Taps + Shake</span>
                   </div>
                 </button>
 
@@ -550,7 +500,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-2.5 press-spring transition-all ${
                     dismissalType === 'MATH'
                       ? 'bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40'
-                      : 'bg-white/4 border-white/8 hover:border-white/15'
+                      : 'bg-theme-card border-theme-card-border hover:border-theme-border'
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -558,16 +508,16 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       className={`p-2 rounded-xl ${
                         dismissalType === 'MATH'
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white/8 text-neutral-400'
+                          : 'bg-theme-bg text-theme-subtext border border-theme-border'
                       }`}
                     >
                       <Calculator size={18} />
                     </div>
-                    {dismissalType === 'MATH' && <Check size={16} className="text-blue-400" />}
+                    {dismissalType === 'MATH' && <Check size={16} className="text-blue-500" />}
                   </div>
                   <div>
-                    <span className="text-xs font-black text-white block">Math Puzzles</span>
-                    <span className="text-[10px] text-neutral-400">3 Mental Equations</span>
+                    <span className="text-xs font-black text-theme-text block">Math Puzzles</span>
+                    <span className="text-[10px] text-theme-subtext">3 Mental Equations</span>
                   </div>
                 </button>
 
@@ -581,7 +531,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-2.5 press-spring transition-all ${
                     dismissalType === 'BRIGHTNESS'
                       ? 'bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40'
-                      : 'bg-white/4 border-white/8 hover:border-white/15'
+                      : 'bg-theme-card border-theme-card-border hover:border-theme-border'
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -589,18 +539,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       className={`p-2 rounded-xl ${
                         dismissalType === 'BRIGHTNESS'
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white/8 text-neutral-400'
+                          : 'bg-theme-bg text-theme-subtext border border-theme-border'
                       }`}
                     >
                       <Sun size={18} />
                     </div>
                     {dismissalType === 'BRIGHTNESS' && (
-                      <Check size={16} className="text-blue-400" />
+                      <Check size={16} className="text-blue-500" />
                     )}
                   </div>
                   <div>
-                    <span className="text-xs font-black text-white block">Turn on Lights</span>
-                    <span className="text-[10px] text-neutral-400">Light Sensor AI</span>
+                    <span className="text-xs font-black text-theme-text block">Turn on Lights</span>
+                    <span className="text-[10px] text-theme-subtext">Light Sensor AI</span>
                   </div>
                 </button>
 
@@ -614,7 +564,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-2.5 press-spring transition-all col-span-2 ${
                     dismissalType === 'OBJECT_MATCH'
                       ? 'bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40'
-                      : 'bg-white/4 border-white/8 hover:border-white/15'
+                      : 'bg-theme-card border-theme-card-border hover:border-theme-border'
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -622,18 +572,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       className={`p-2 rounded-xl ${
                         dismissalType === 'OBJECT_MATCH'
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white/8 text-neutral-400'
+                          : 'bg-theme-bg text-theme-subtext border border-theme-border'
                       }`}
                     >
                       <Scan size={18} />
                     </div>
                     {dismissalType === 'OBJECT_MATCH' && (
-                      <Check size={16} className="text-blue-400" />
+                      <Check size={16} className="text-blue-500" />
                     )}
                   </div>
                   <div>
-                    <span className="text-xs font-black text-white block">Scan Household Object</span>
-                    <span className="text-[10px] text-neutral-400">
+                    <span className="text-xs font-black text-theme-text block">Scan Household Object</span>
+                    <span className="text-[10px] text-theme-subtext">
                       Camera recognition (Mug, Sink, Book, Chair)
                     </span>
                   </div>
@@ -642,11 +592,11 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
               {/* Dynamic Task Details */}
               {dismissalType === 'PUSHUP_MATH' && (
-                <div className="p-4 rounded-2xl bg-white/4 border border-white/8 space-y-3 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-theme-card border border-theme-card-border space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-white block">Push-Up Reps</span>
-                      <span className="text-[10px] text-neutral-400">Target to dismiss</span>
+                      <span className="text-xs font-bold text-theme-text block">Push-Up Reps</span>
+                      <span className="text-[10px] text-theme-subtext">Target to dismiss</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {[5, 10, 15, 20].map((reps) => (
@@ -660,7 +610,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                           className={`px-3 py-1.5 rounded-xl text-xs font-black press-spring transition-all ${
                             pushupTarget === reps
                               ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
-                              : 'bg-white/8 text-neutral-400 hover:text-white'
+                              : 'bg-theme-bg text-theme-subtext border border-theme-border hover:text-theme-text'
                           }`}
                         >
                           {reps}
@@ -668,7 +618,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                       ))}
                     </div>
                   </div>
-                  <p className="text-[11px] text-neutral-400 pt-1.5 border-t border-white/5">
+                  <p className="text-[11px] text-theme-subtext pt-1.5 border-t border-theme-border">
                     Front camera AI tracks your real push-up form and counts repetitions before dismissing.
                   </p>
                 </div>
@@ -679,7 +629,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                 <button
                   type="button"
                   onClick={handleBackStep}
-                  className="px-5 py-4 rounded-2xl border border-white/10 bg-white/5 text-neutral-300 hover:text-white press-spring text-sm font-bold transition-all flex items-center gap-2"
+                  className="px-5 py-4 rounded-2xl border border-theme-card-border bg-theme-card text-theme-subtext hover:text-theme-text press-spring text-sm font-bold transition-all flex items-center gap-2"
                 >
                   <ArrowLeft size={16} />
                   <span>Back</span>
