@@ -118,43 +118,12 @@ body {
   min-height: 100dvh;
   font-weight: 500;
   letter-spacing: -0.015em;
-  transition: background-color 300ms var(--ease-smooth), color 300ms var(--ease-smooth);
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   -webkit-text-size-adjust: 100%;
-  text-rendering: optimizeLegibility;
+  text-rendering: optimizeSpeed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-/* Ambient glow background in dark mode */
-.dark body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100vw;
-  max-width: 600px;
-  height: 380px;
-  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.04) 50%, transparent 75%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Ambient soft warmth in light mode */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100vw;
-  max-width: 600px;
-  height: 340px;
-  background: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.06) 0%, rgba(241, 245, 249, 0) 70%);
-  pointer-events: none;
-  z-index: 0;
 }
 
 button {
@@ -217,37 +186,37 @@ input, textarea, select {
   transform: scale(0.91);
 }
 
-/* ─── Premium Glassmorphism ────────────────────────────────────────────────── */
+/* ─── High-Performance Glassmorphism ────────────────────────────────────────── */
 .glass {
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
 .dark .glass {
-  background: rgba(18, 19, 26, 0.72);
+  background: rgba(18, 19, 26, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-pill {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .dark .glass-pill {
-  background: rgba(22, 23, 32, 0.82);
+  background: rgba(22, 23, 32, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .glass-card {
   background: var(--color-card);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--color-card-border);
   box-shadow: var(--shadow-card);
 }
@@ -260,11 +229,12 @@ input, textarea, select {
   box-shadow: var(--shadow-card);
   position: relative;
   overflow: hidden;
+  transform: translateZ(0);
+  will-change: transform;
   transition:
-    transform 220ms var(--ease-spring),
-    box-shadow 220ms var(--ease-smooth),
-    border-color 220ms ease,
-    opacity 180ms ease;
+    transform 180ms var(--ease-spring),
+    box-shadow 180ms var(--ease-smooth),
+    opacity 160ms ease;
 }
 .card-premium:active {
   transform: scale(0.985);
@@ -273,32 +243,29 @@ input, textarea, select {
 
 /* ─── Ultra-Satisfying Toggle Switch ───────────────────────────────────────── */
 .toggle-track {
-  transition: background-color 240ms var(--ease-smooth), box-shadow 240ms ease;
+  transition: background-color 200ms var(--ease-smooth);
 }
 .toggle-thumb {
-  transition: transform 280ms var(--ease-spring), box-shadow 220ms ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 240ms var(--ease-spring);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 .toggle-track:active .toggle-thumb {
   transform: scale(0.92);
 }
 
-/* ─── Live Clock Breathing Animation ───────────────────────────────────────── */
+/* ─── Live Clock Breathing Animation (High Performance) ─────────────────────── */
 @keyframes pulseColon {
   0%, 100% {
     opacity: 1;
-    transform: scale(1);
-    filter: drop-shadow(0 0 0px transparent);
   }
   50% {
-    opacity: 0.35;
-    transform: scale(0.92);
-    filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.4));
+    opacity: 0.3;
   }
 }
 
 .animate-colon {
   animation: pulseColon 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity;
 }
 
 /* ─── Floating Pill Dock ───────────────────────────────────────────────────── */
@@ -325,19 +292,10 @@ input, textarea, select {
   animation: sheetUp 360ms var(--ease-snap) forwards;
 }
 
-/* ─── Staggered list item reveal ───────────────────────────────────────────── */
+/* ─── List item reveal ─────────────────────────────────────────────────────── */
 .stagger-item {
-  opacity: 0;
-  transform: translateY(10px);
-  animation: fadeIn 300ms var(--ease-smooth) forwards;
+  animation: fadeIn 200ms var(--ease-smooth) forwards;
 }
-.stagger-item:nth-child(1)  { animation-delay: 20ms; }
-.stagger-item:nth-child(2)  { animation-delay: 60ms; }
-.stagger-item:nth-child(3)  { animation-delay: 100ms; }
-.stagger-item:nth-child(4)  { animation-delay: 140ms; }
-.stagger-item:nth-child(5)  { animation-delay: 180ms; }
-.stagger-item:nth-child(6)  { animation-delay: 220ms; }
-.stagger-item:nth-child(n+7){ animation-delay: 250ms; }
 
 /* ─── Tabular Numbers ───────────────────────────────────────────────────────── */
 .font-tabular {

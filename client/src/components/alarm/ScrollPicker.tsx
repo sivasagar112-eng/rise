@@ -31,6 +31,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
   const startYRef = useRef(0);
   const startOffsetRef = useRef(0);
   const animFrameRef = useRef<number | null>(null);
+  const moveRafRef = useRef<number | null>(null);
   const pointerHistoryRef = useRef<{ y: number; time: number }[]>([]);
   const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTickIndexRef = useRef<number>(selectedIndex);
@@ -44,6 +45,10 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
+    }
+    if (moveRafRef.current !== null) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = null;
     }
   }, []);
 
@@ -165,8 +170,15 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
     }
 
     offsetRef.current = newOffset;
-    setOffset(newOffset);
     checkHapticTick(newOffset);
+
+    // Sync visual updates with display refresh rate (prevents frame drops during fast drags)
+    if (moveRafRef.current === null) {
+      moveRafRef.current = requestAnimationFrame(() => {
+        setOffset(offsetRef.current);
+        moveRafRef.current = null;
+      });
+    }
 
     // Keep last 100ms of pointer moves for accurate release velocity
     const history = pointerHistoryRef.current;
@@ -179,6 +191,12 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
+
+    if (moveRafRef.current !== null) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = null;
+    }
+    setOffset(offsetRef.current);
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -282,6 +300,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
           top: '50%',
           marginTop: -itemHeight / 2,
           transform: `translateY(${distFromCenter}px) rotateX(${rotateX}deg) scale(${scale})`,
+          willChange: 'transform',
           opacity,
           transformOrigin: 'center center',
           zIndex: isSelected ? 2 : 1,

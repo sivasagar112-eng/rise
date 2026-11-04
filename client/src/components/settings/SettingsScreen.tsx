@@ -281,7 +281,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   return (
-    <div className="w-full min-h-full pb-20 select-none bg-theme-bg text-theme-text">
+    <div className="w-full min-h-full select-none bg-theme-bg text-theme-text">
       {/* ── Top Header ── */}
       <div className="relative px-6 pt-8 pb-6 border-b border-theme-border">
         <button
@@ -307,7 +307,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </p>
       </div>
 
-      <div className="px-6 py-6 space-y-5 max-w-md mx-auto">
+      <div className="px-6 pt-5 pb-6 space-y-5 max-w-md mx-auto" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         {/* ── Theme & Appearance ── */}
         <div className="rounded-3xl border border-theme-card-border bg-theme-card overflow-hidden shadow-card">
           <div className="px-5 pt-4 pb-1">

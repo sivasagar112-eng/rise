@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Alarm } from '../../types/alarm';
 import { Trash2, Dumbbell, Smartphone, Calculator, Sun, Scan } from 'lucide-react';
 import { formatTime12h } from '../../utils/timeFormat';
@@ -156,7 +157,7 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, o
         }}
         className={`
           w-full rounded-[26px] p-5 mb-3.5 cursor-pointer select-none
-          card-premium stagger-item
+          card-premium
           ${alarm.isEnabled ? 'ring-1 ring-blue-500/10' : ''}
         `}
       >
@@ -228,47 +229,58 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, o
         </div>
       </div>
 
-      {/* ── Long-Press Delete Modal ── */}
-      {showDeleteModal && (
-        <div
-          onClick={() => setShowDeleteModal(false)}
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-end sm:items-center justify-center p-4 animate-fade-in"
-        >
+      {/* ── Long-Press Delete Modal (Mounted directly to body via portal to prevent overlapping/clipping) ── */}
+      {showDeleteModal &&
+        createPortal(
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-[#14151C] border border-white/10 rounded-3xl p-6 text-center text-white shadow-2xl space-y-4 sheet-up"
+            onClick={() => setShowDeleteModal(false)}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-fade-in"
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
           >
-            <div className="w-14 h-14 rounded-2xl bg-red-500/12 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto shadow-inner">
-              <Trash2 size={26} />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xs sm:max-w-sm rounded-[32px] p-6 text-center text-white shadow-2xl space-y-4 animate-scale-in"
+              style={{
+                backgroundColor: '#161722',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+              }}
+            >
+              <div className="w-14 h-14 rounded-2xl bg-red-500/15 border border-red-500/25 text-red-400 flex items-center justify-center mx-auto shadow-inner">
+                <Trash2 size={26} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white">Delete Alarm?</h3>
+                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                  Remove the{' '}
+                  <strong className="text-white font-semibold">
+                    {timeStr} {period}
+                  </strong>{' '}
+                  alarm{alarm.label && alarm.label !== 'Alarm' ? ` — "${alarm.label}"` : ''}?
+                </p>
+              </div>
+              <div className="space-y-2.5 pt-2">
+                <button
+                  onClick={confirmDelete}
+                  className="w-full py-3.5 bg-red-600 hover:bg-red-500 text-white rounded-2xl text-sm font-black transition-all shadow-lg shadow-red-600/30 press-spring flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete Alarm</span>
+                </button>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="w-full py-3 bg-white/10 hover:bg-white/15 text-neutral-200 rounded-2xl text-sm font-bold transition-colors press-spring"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-extrabold text-white">Delete Alarm?</h3>
-              <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-                Remove the{' '}
-                <strong className="text-white font-semibold">
-                  {timeStr} {period}
-                </strong>{' '}
-                alarm{alarm.label ? ` — "${alarm.label}"` : ''}?
-              </p>
-            </div>
-            <div className="space-y-2.5 pt-1">
-              <button
-                onClick={confirmDelete}
-                className="w-full py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl text-sm font-extrabold transition-all shadow-lg shadow-red-500/25 press-spring flex items-center justify-center gap-2"
-              >
-                <Trash2 size={16} />
-                Delete Alarm
-              </button>
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="w-full py-3 bg-white/8 hover:bg-white/12 text-neutral-300 rounded-2xl text-sm font-semibold transition-colors press-spring"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };

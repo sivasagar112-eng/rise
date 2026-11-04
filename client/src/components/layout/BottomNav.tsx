@@ -47,12 +47,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab, on
         </div>
       )}
 
-      {/* ── Floating Glass Dock Navigation Bar ── */}
+      {/* ── Floating Seamless Navigation Bar ── */}
       <nav
         className="
           fixed bottom-0 left-0 right-0 z-30
           glass-card
-          border-t border-theme-border
           py-2.5 px-8
           transition-colors duration-300
         "
@@ -70,16 +69,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab, on
                 onClick={() => handleSelectTab(tab)}
                 className="flex flex-col items-center gap-1 py-1 relative press-spring group"
               >
-                {/* Active Indicator Glow Pill */}
-                {active && (
-                  <span
-                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-6 h-1 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)] animate-pop-in"
-                  />
-                )}
-
                 <div
-                  className={`p-1 rounded-xl transition-all duration-200 ${
-                    active ? 'bg-blue-500/10 scale-110' : 'group-hover:bg-theme-card'
+                  className={`p-1.5 rounded-2xl transition-all duration-200 ${
+                    active ? 'bg-blue-500/15 scale-105' : 'group-hover:bg-theme-card'
                   }`}
                 >
                   <Icon
@@ -92,8 +84,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab, on
                 </div>
 
                 <span
-                  className={`text-[11px] font-bold tracking-tight transition-colors duration-200 ${
-                    active ? 'text-blue-500 font-extrabold' : 'text-theme-subtext'
+                  className={`text-[11px] tracking-tight transition-colors duration-200 ${
+                    active ? 'text-blue-500 font-black' : 'text-theme-subtext font-semibold'
                   }`}
                 >
                   {label}

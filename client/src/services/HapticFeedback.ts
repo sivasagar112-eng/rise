@@ -10,6 +10,7 @@ class HapticFeedbackService {
   private audioCtx: AudioContext | null = null;
   private hapticsEnabled: boolean = true;
   private audioClicksEnabled: boolean = true;
+  private lastTickTime: number = 0;
 
   constructor() {
     try {
@@ -132,10 +133,14 @@ class HapticFeedbackService {
 
   /**
    * Extremely light tick for scrolling dials, wheel detents, number changes.
+   * Throttled to prevent thread contention during fast swipes.
    */
   public tick(): void {
+    const now = performance.now();
+    if (now - this.lastTickTime < 35) return;
+    this.lastTickTime = now;
     this.vibrate(4);
-    this.playMicroTick(2400, 0.006, 0.028);
+    this.playMicroTick(2400, 0.006, 0.025);
   }
 
   /**

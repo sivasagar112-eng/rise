@@ -285,7 +285,7 @@ export const App: React.FC = () => {
   }, [completeDismissal, alarms]);
 
   return (
-    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none pb-28" style={{ transition: 'background-color 280ms cubic-bezier(0.22,1,0.36,1), color 280ms ease' }}>
+    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none">
       {/* Top Header with theme toggle on top right */}
       <Header
         theme={theme}
@@ -310,7 +310,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-md mx-auto px-4 pb-36">
+      <main className="flex-1 w-full max-w-md mx-auto px-4 pb-24">
         {/* Tab 1: Alarms */}
         {activeTab === 'ALARM' && (
           <div className="animate-fade-in">

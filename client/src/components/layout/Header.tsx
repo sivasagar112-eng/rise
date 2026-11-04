@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Sun, Moon, Bell, BellOff, Sparkles } from 'lucide-react';
+import { Settings, Sun, Moon, Bell, BellOff } from 'lucide-react';
 import { Alarm } from '../../types/alarm';
 import { getNextUpcomingAlarmCountdown } from '../../utils/timeFormat';
 import { Haptics } from '../../services/HapticFeedback';
@@ -47,12 +47,9 @@ export const Header: React.FC<HeaderProps> = ({ theme, alarms, onToggleTheme, on
     <header className="w-full pt-7 pb-4 px-6 select-none relative z-10 animate-fade-in">
       {/* ── Top Action Bar ── */}
       <div className="flex justify-between items-center mb-6">
-        {/* Brand Wordmark with subtle neon spark */}
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/25">
-            <Sparkles size={14} className="text-white" />
-          </div>
-          <span className="text-sm font-extrabold tracking-widest uppercase bg-gradient-to-r from-theme-text to-theme-subtext bg-clip-text text-transparent">
+        {/* Brand Wordmark: Bold & Prominent */}
+        <div>
+          <span className="text-2xl sm:text-[28px] font-black tracking-tight text-theme-text">
             Rise
           </span>
         </div>
