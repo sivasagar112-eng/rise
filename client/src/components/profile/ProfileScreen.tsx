@@ -205,10 +205,14 @@ export const ProfileScreen: React.FC = () => {
       setUser(profile);
       Haptics.success();
     } catch (err: unknown) {
-      console.error('Google Sign-In failed:', err);
-      const msg = err instanceof Error ? err.message : 'Google Sign-In failed';
-      if (!msg.toLowerCase().includes('cancel')) {
-        setAuthError(msg);
+      console.warn('Google Sign-In failed:', err);
+      const rawMsg = err instanceof Error ? err.message : 'Google Sign-In failed';
+      if (!rawMsg.toLowerCase().includes('cancel')) {
+        if (rawMsg.toLowerCase().includes('no credentials available')) {
+          setAuthError('No Google account was selected, or Google Play Services is initializing. Please tap again to choose your account.');
+        } else {
+          setAuthError(rawMsg);
+        }
       }
     } finally {
       setGoogleLoading(false);
