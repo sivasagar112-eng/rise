@@ -268,6 +268,7 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
 
   const handleItemClick = (slotK: number) => {
     if (isDraggingRef.current) return;
+    if (!loop && (slotK < 0 || slotK >= items.length)) return;
     Haptics.tick();
     const targetOffset = -slotK * itemHeight;
     animateToOffset(targetOffset, 240);
@@ -280,6 +281,9 @@ export const ScrollPicker: React.FC<ScrollPickerProps> = ({
   // Render 5 virtual slots around the center position (-2 to +2)
   const renderSlots = [-2, -1, 0, 1, 2].map((j) => {
     const slotK = centerK + j;
+    if (!loop && (slotK < 0 || slotK >= items.length)) {
+      return null;
+    }
     const itemIndex = ((slotK % items.length) + items.length) % items.length;
     const item = items[itemIndex];
     const distFromCenter = slotK * itemHeight + offset;

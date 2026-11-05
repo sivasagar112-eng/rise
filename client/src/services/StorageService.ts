@@ -121,6 +121,14 @@ export class StorageService {
     }
   }
 
+  public static updateUser(updates: Partial<UserProfile>): UserProfile | null {
+    const current = this.getUser();
+    if (!current) return null;
+    const updated = { ...current, ...updates };
+    this.saveUser(updated);
+    return updated;
+  }
+
   // Theme
   public static getTheme(): 'dark' | 'light' {
     const stored = localStorage.getItem(STORAGE_KEYS.THEME);

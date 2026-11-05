@@ -23,6 +23,7 @@ const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal'
 const RingingScreen = lazy(() => import('./components/ringing/RingingScreen').then((m) => ({ default: m.RingingScreen })));
 const ProfileScreen = lazy(() => import('./components/profile/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
 const SettingsScreen = lazy(() => import('./components/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const OnboardingScreen = lazy(() => import('./components/onboarding/OnboardingScreen').then((m) => ({ default: m.OnboardingScreen })));
 
 export const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -34,16 +35,19 @@ export const App: React.FC = () => {
   const [editingAlarm, setEditingAlarm] = useState<Alarm | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    const user = StorageService.getUser();
+    return !StorageService.hasSeenOnboarding() || !user?.name;
+  });
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
     return localStorage.getItem('rise_bg_banner_dismissed') === 'true';
   });
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [backgroundReady, setBackgroundReady] = useState<boolean>(true);
 
-  // Directly prompt notification permission once on very first launch (no double-asking in-app modal)
+  // If onboarding was already completed previously, ensure notification permissions are ready
   useEffect(() => {
-    if (!StorageService.hasSeenOnboarding()) {
-      StorageService.markOnboardingDone();
+    if (StorageService.hasSeenOnboarding()) {
       LocalNotifications.requestPermissions().catch(() => {});
     }
   }, []);
@@ -116,25 +120,28 @@ export const App: React.FC = () => {
     }, []),
     isSettingsOpen,
     closeSettings: React.useCallback(() => setIsSettingsOpen(false), []),
-    showOnboarding: false,
+    showOnboarding: isOnboardingOpen,
     closeOnboarding: React.useCallback(() => {}, []),
     activeTab,
     setActiveTab,
     showToast,
   });
 
-  // Auto-restore Google user session on app launch if available
+  // Auto-restore Google user session on app launch if available while preserving name and age
   useEffect(() => {
-    if (!StorageService.getUser() && GoogleAuthService.isAvailable()) {
+    const existing = StorageService.getUser();
+    if ((!existing || !existing.isGoogleLinked) && GoogleAuthService.isAvailable()) {
       GoogleAuthService.getCurrentUser()
         .then((currentUser) => {
           if (currentUser?.uid) {
             const profile = {
               id: currentUser.uid,
-              email: currentUser.email || '',
-              name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
-              photoUrl: currentUser.photoUrl || '',
+              email: currentUser.email || existing?.email || '',
+              name: existing?.name || currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+              age: existing?.age || 24,
+              photoUrl: currentUser.photoUrl || existing?.photoUrl || '',
               token: 'firebase-' + currentUser.uid,
+              isGoogleLinked: true,
             };
             StorageService.saveUser(profile as any);
           }
@@ -474,7 +481,17 @@ export const App: React.FC = () => {
         </Suspense>
       )}
 
-
+      {/* First-Time Onboarding Modal (Name, Age Scroller & Google Account Sync) */}
+      {isOnboardingOpen && (
+        <Suspense fallback={null}>
+          <OnboardingScreen
+            onComplete={(user) => {
+              setIsOnboardingOpen(false);
+              showToast(`Welcome to Rise, ${user.name}!`, 'info');
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Next Alarm Countdown Toast Pill (Floating at Bottom) */}
       <NextAlarmToast toast={toast} onDismiss={() => setToast(null)} />

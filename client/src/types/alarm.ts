@@ -40,6 +40,10 @@ export interface SleepWindowInsight {
 
 export interface UserProfile {
   id: string;
-  email: string;
+  email?: string;
+  name: string;
+  age: number;
+  photoUrl?: string;
   token?: string;
+  isGoogleLinked?: boolean;
 }
