@@ -872,28 +872,29 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
           )}
         </div>
 
-        {/* Prominent Native Shutter Button */}
+        {/* Prominent Native Camera Shutter Button (Enlarged White Circle) */}
         <button
           type="button"
           onClick={handleManualScan}
           disabled={isScanning || isVerified}
-          className={`p-1.5 rounded-full border-4 active:scale-90 transition-all cursor-pointer shadow-2xl ${
+          className={`w-[88px] h-[88px] p-2 rounded-full border-[4px] active:scale-95 transition-all cursor-pointer shadow-2xl flex items-center justify-center shrink-0 ${
             targetInView
-              ? 'border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.4)]'
-              : 'border-white/80 shadow-black/50'
+              ? 'border-emerald-400 shadow-[0_0_28px_rgba(52,211,153,0.45)]'
+              : 'border-white/90 shadow-black/60'
           }`}
           aria-label="Scan Object"
         >
           <div
-            className={`w-18 h-18 rounded-full flex items-center justify-center shadow-inner transition-colors ${
+            className={`w-full h-full rounded-full flex items-center justify-center shadow-lg transition-colors ${
               targetInView
                 ? 'bg-emerald-400'
                 : 'bg-white'
             }`}
           >
             <Camera
-              size={28}
+              size={34}
               className={targetInView ? 'text-black' : 'text-neutral-900'}
+              strokeWidth={2.4}
             />
           </div>
         </button>

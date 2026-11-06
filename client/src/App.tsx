@@ -17,13 +17,13 @@ import { GoogleAuthService } from './services/GoogleAuthService';
 import { Haptics } from './services/HapticFeedback';
 import { App as CapApp } from '@capacitor/app';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
 
 // Lazy-load heavy screens to make initial app launch near instantaneous
 const AlarmEditorModal = lazy(() => import('./components/alarm/AlarmEditorModal').then((m) => ({ default: m.AlarmEditorModal })));
 const RingingScreen = lazy(() => import('./components/ringing/RingingScreen').then((m) => ({ default: m.RingingScreen })));
 const ProfileScreen = lazy(() => import('./components/profile/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
 const SettingsScreen = lazy(() => import('./components/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
-const OnboardingScreen = lazy(() => import('./components/onboarding/OnboardingScreen').then((m) => ({ default: m.OnboardingScreen })));
 
 export const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -291,6 +291,21 @@ export const App: React.FC = () => {
     }
   }, [completeDismissal, alarms]);
 
+  // First-Time Onboarding: render immediately without background screen flash
+  if (isOnboardingOpen) {
+    return (
+      <div className="min-h-screen bg-theme-bg text-theme-text select-none">
+        <OnboardingScreen
+          onComplete={(user) => {
+            setIsOnboardingOpen(false);
+            showToast(`Welcome to Rise, ${user.name}!`, 'info');
+          }}
+        />
+        <NextAlarmToast toast={toast} onDismiss={() => setToast(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col font-sans select-none">
       {/* Top Header with theme toggle on top right */}
@@ -481,17 +496,7 @@ export const App: React.FC = () => {
         </Suspense>
       )}
 
-      {/* First-Time Onboarding Modal (Name, Age Scroller & Google Account Sync) */}
-      {isOnboardingOpen && (
-        <Suspense fallback={null}>
-          <OnboardingScreen
-            onComplete={(user) => {
-              setIsOnboardingOpen(false);
-              showToast(`Welcome to Rise, ${user.name}!`, 'info');
-            }}
-          />
-        </Suspense>
-      )}
+
 
       {/* Next Alarm Countdown Toast Pill (Floating at Bottom) */}
       <NextAlarmToast toast={toast} onDismiss={() => setToast(null)} />
