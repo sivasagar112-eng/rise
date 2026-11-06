@@ -78,11 +78,7 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
 
   if (effectiveDismissalType === 'OBJECT_MATCH') {
     return (
-      <ObjectMatchCameraView
-        alarmTime={`${timeStr} ${period}`}
-        alarmLabel={alarm.label || 'Morning Alarm'}
-        onComplete={handleAllTasksDone}
-      />
+      <ObjectMatchCameraView onComplete={handleAllTasksDone} />
     );
   }
 

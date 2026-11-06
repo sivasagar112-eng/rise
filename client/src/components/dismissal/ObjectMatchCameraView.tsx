@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ModelPreloader } from '../../services/ModelPreloader';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { Check, RefreshCw, FlipHorizontal, Camera, Sun, Loader2, AlertCircle, Bell } from 'lucide-react';
+import { Check, RefreshCw, FlipHorizontal, Camera, Sun, Loader2, AlertCircle } from 'lucide-react';
 import { synth } from '../../services/WebAudioSynth';
 
 interface ObjectMatchCameraViewProps {
   onComplete: () => void;
-  alarmTime?: string;
-  alarmLabel?: string;
 }
 
 interface TargetItem {
@@ -377,8 +375,6 @@ function analyzeOfflineObjectFrame(
 
 export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
   onComplete,
-  alarmTime,
-  alarmLabel,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -756,37 +752,24 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
       <div className="absolute top-0 inset-x-0 h-44 bg-gradient-to-b from-black/85 via-black/45 to-transparent pointer-events-none z-10" />
       <div className="absolute bottom-0 inset-x-0 h-56 bg-gradient-to-t from-black/90 via-black/55 to-transparent pointer-events-none z-10" />
 
-      {/* ── Top Bar Controls: Floating over full-screen camera ── */}
+      {/* ── Top Bar Controls: Change Item & Change Camera ── */}
       <div
         className="relative z-20 px-5 pt-4 flex items-center justify-between"
-        style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
+        style={{ paddingTop: 'max(24px, env(safe-area-inset-top))' }}
       >
         <button
           type="button"
           onClick={handleNextTarget}
           disabled={isScanning || isVerified}
-          className="px-3.5 py-2 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white text-xs font-bold backdrop-blur-md flex items-center gap-1.5 transition-all shadow-lg"
+          className="px-4 py-2 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white text-xs font-bold backdrop-blur-md flex items-center gap-2 transition-all shadow-lg"
         >
-          <RefreshCw size={13} className={isScanning ? 'animate-spin' : ''} />
+          <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
           <span>Change Item</span>
         </button>
 
-        {/* Minimalist Alarm Wake-Up Banner */}
-        <div className="flex flex-col items-center select-none text-center">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/25 border border-red-500/35 text-red-300 text-[10px] font-black tracking-widest uppercase backdrop-blur-md shadow-md">
-            <Bell size={11} className="animate-bounce" />
-            <span>SCAN TO STOP ALARM</span>
-          </div>
-          {alarmTime && (
-            <span className="text-white text-xs font-black tracking-tight mt-0.5 drop-shadow-md">
-              {alarmTime} {alarmLabel ? `• ${alarmLabel}` : ''}
-            </span>
-          )}
-        </div>
-
         <div className="flex items-center gap-2">
           {isAiLoading && (
-            <span className="px-2.5 py-1 rounded-full bg-black/60 border border-white/20 text-amber-300 text-[10px] font-bold backdrop-blur-md flex items-center gap-1 shadow-md">
+            <span className="px-2.5 py-1.5 rounded-full bg-black/60 border border-white/20 text-amber-300 text-[10px] font-bold backdrop-blur-md flex items-center gap-1 shadow-md">
               <Loader2 size={11} className="animate-spin" />
               <span>AI</span>
             </span>
@@ -795,10 +778,11 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
             type="button"
             onClick={toggleCamera}
             disabled={isScanning || isVerified}
-            className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white backdrop-blur-md transition-all shadow-lg"
-            aria-label="Switch Camera"
+            className="px-4 py-2 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white text-xs font-bold backdrop-blur-md flex items-center gap-2 transition-all shadow-lg"
+            aria-label="Change Camera"
           >
-            <FlipHorizontal size={17} />
+            <FlipHorizontal size={15} />
+            <span>Change Camera</span>
           </button>
         </div>
       </div>
@@ -865,10 +849,10 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
       {/* ── Bottom Controls ── */}
       <div
         className="relative z-20 px-6 flex flex-col items-center"
-        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: 'max(56px, calc(env(safe-area-inset-bottom) + 48px))' }}
       >
         {/* Status Hint Pill */}
-        <div className="min-h-[38px] max-w-sm px-4 py-2 mb-4 rounded-full bg-black/60 backdrop-blur-md border border-white/15 flex items-center justify-center text-center shadow-lg">
+        <div className="min-h-[38px] max-w-sm px-4 py-2 mb-5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 flex items-center justify-center text-center shadow-lg">
           {scanMessage ? (
             <p className="text-xs font-bold text-amber-300 leading-snug animate-pulse">
               {scanMessage}
