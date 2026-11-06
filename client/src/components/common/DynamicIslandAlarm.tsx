@@ -20,7 +20,7 @@ export const DynamicIslandAlarm: React.FC<DynamicIslandAlarmProps> = ({
   }, []);
 
   const getTaskSubtitle = () => {
-    if (alarm.dismissalType === 'PUSHUP_MATH') return `${alarm.pushupTarget ?? 5} push-ups`;
+    if (alarm.dismissalType === 'PUSHUP_MATH') return '10 push-ups';
     if (alarm.dismissalType === 'BRIGHTNESS') return 'Turn on lights';
     if (alarm.dismissalType === 'CLICK_SHAKE') return '100 taps + shake';
     if (alarm.dismissalType === 'OBJECT_MATCH') return 'Scan an object';

@@ -119,7 +119,7 @@ class AlarmKeepAliveService : Service() {
                     val alarmTime = obj.optString("alarmTime", "07:00")
                     val alarmLabel = obj.optString("alarmLabel", "Rise Alarm")
                     val dismissalType = obj.optString("dismissalType", "PUSHUP_MATH")
-                    val pushupTarget = obj.optInt("pushupTarget", 5)
+                    val pushupTarget = obj.optInt("pushupTarget", 10)
                     val rampDuration = obj.optInt("rampDuration", 30)
                     val daysJson = obj.optJSONArray("daysOfWeek")
 

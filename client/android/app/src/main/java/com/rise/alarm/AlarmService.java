@@ -52,7 +52,7 @@ public class AlarmService extends Service {
     private String currentAlarmTime;
     private String currentAlarmLabel;
     private String currentDismissalType;
-    private int currentPushupTarget = 5;
+    private int currentPushupTarget = 10;
     private int currentRampDuration = 30;
 
     private MediaPlayer mediaPlayer;
@@ -75,7 +75,7 @@ public class AlarmService extends Service {
         String alarmTime = null;
         String alarmLabel = null;
         String dismissalType = null;
-        int pushupTarget = 5;
+        int pushupTarget = 10;
         int rampDuration = 30;
 
         if (intent != null) {
@@ -83,7 +83,7 @@ public class AlarmService extends Service {
             alarmTime = intent.getStringExtra("alarmTime");
             alarmLabel = intent.getStringExtra("alarmLabel");
             dismissalType = intent.getStringExtra("dismissalType");
-            pushupTarget = intent.getIntExtra("pushupTarget", 5);
+            pushupTarget = intent.getIntExtra("pushupTarget", 10);
             rampDuration = intent.getIntExtra("rampDuration", 30);
         }
 
@@ -95,7 +95,7 @@ public class AlarmService extends Service {
                 alarmTime = prefs.getString(KEY_ALARM_TIME, "07:00");
                 alarmLabel = prefs.getString(KEY_ALARM_LABEL, "Rise Alarm");
                 dismissalType = prefs.getString(KEY_DISMISSAL_TYPE, "PUSHUP_MATH");
-                pushupTarget = prefs.getInt(KEY_PUSHUP_TARGET, 5);
+                pushupTarget = prefs.getInt(KEY_PUSHUP_TARGET, 10);
                 rampDuration = prefs.getInt(KEY_RAMP_DURATION, 30);
                 Log.d(TAG, "Restored active alarm from preferences on STICKY restart: " + alarmId);
             } else {

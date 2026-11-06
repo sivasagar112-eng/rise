@@ -18,7 +18,7 @@ export class StorageService {
         return alarms.map((a) => ({
           ...a,
           dismissalType: (!a.dismissalType || a.dismissalType === 'RANDOM') ? 'PUSHUP_MATH' : a.dismissalType,
-          pushupTarget: a.pushupTarget || 5,
+          pushupTarget: 10,
         }));
       }
     } catch (e) {

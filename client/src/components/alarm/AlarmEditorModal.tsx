@@ -42,7 +42,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
   const [dismissalType, setDismissalType] = useState<DismissalType>(
     alarm ? alarm.dismissalType : 'PUSHUP_MATH'
   );
-  const [pushupTarget, setPushupTarget] = useState<number>(alarm ? alarm.pushupTarget : 5);
+  const pushupTarget = 10;
   const [rampDuration, setRampDuration] = useState<number>(alarm ? alarm.rampDuration : 30);
   const [preAlarmMinutes, setPreAlarmMinutes] = useState<number>(
     alarm?.preAlarmMinutes !== undefined
@@ -453,7 +453,7 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-black text-theme-text block">Push-ups</span>
-                    <span className="text-[10px] text-theme-subtext">AI Pose Camera</span>
+                    <span className="text-[10px] text-theme-subtext">10 Reps • AI Camera</span>
                   </div>
                 </button>
 
@@ -592,34 +592,18 @@ export const AlarmEditorModal: React.FC<AlarmEditorModalProps> = ({
 
               {/* Dynamic Task Details */}
               {dismissalType === 'PUSHUP_MATH' && (
-                <div className="p-4 rounded-2xl bg-theme-card border border-theme-card-border space-y-3 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-theme-card border border-theme-card-border space-y-2 animate-fade-in">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-theme-text block">Push-Up Reps</span>
-                      <span className="text-[10px] text-theme-subtext">Target to dismiss</span>
+                      <span className="text-xs font-bold text-theme-text block">Push-Up Challenge</span>
+                      <span className="text-[10px] text-theme-subtext">Fixed wake-up requirement</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {[5, 10, 15, 20].map((reps) => (
-                        <button
-                          key={reps}
-                          type="button"
-                          onClick={() => {
-                            Haptics.selection();
-                            setPushupTarget(reps);
-                          }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-black press-spring transition-all ${
-                            pushupTarget === reps
-                              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
-                              : 'bg-theme-bg text-theme-subtext border border-theme-border hover:text-theme-text'
-                          }`}
-                        >
-                          {reps}
-                        </button>
-                      ))}
-                    </div>
+                    <span className="px-3 py-1 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-400 text-xs font-black">
+                      10 Push-ups
+                    </span>
                   </div>
                   <p className="text-[11px] text-theme-subtext pt-1.5 border-t border-theme-border">
-                    Front camera AI tracks your real push-up form and counts repetitions before dismissing.
+                    Front camera AI tracks your real push-up form and counts exactly 10 repetitions to dismiss the alarm.
                   </p>
                 </div>
               )}

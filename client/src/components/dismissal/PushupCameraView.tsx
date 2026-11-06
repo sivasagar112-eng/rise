@@ -7,7 +7,7 @@ import { Capacitor } from '@capacitor/core';
 import { AlarmSchedulerNative } from '../../services/AlarmNotificationService';
 
 interface PushupCameraViewProps {
-  targetReps: number;
+  targetReps?: number;
   onComplete: () => void;
 }
 
@@ -23,7 +23,7 @@ const MIN_BODY_SPAN_RATIO = 0.12;  // Body must span at least 12% of frame heigh
 const STABILITY_THRESHOLD = 40;    // Max allowed per-frame keypoint jump (pixels) — rejects phone shaking
 
 export const PushupCameraView: React.FC<PushupCameraViewProps> = ({
-  targetReps,
+  targetReps = 10,
   onComplete,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);

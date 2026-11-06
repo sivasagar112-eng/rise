@@ -70,7 +70,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
     const runtimeAlarm: Alarm = {
       ...alarm,
       dismissalType: runtimeDismissal,
-      pushupTarget: alarm.pushupTarget || 5,
+      pushupTarget: alarm.pushupTarget || 10,
     };
     console.log(`[useAlarmScheduler] Concrete task selected for alarm ${alarm.id}: ${runtimeDismissal} (fromNative=${fromNative}, nativeType=${nativeDismissalType})`);
 
@@ -127,7 +127,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
           label: triggerData.alarmLabel || 'Rise Alarm',
           daysOfWeek: [],
           dismissalType: triggerData.dismissalType || 'PUSHUP_MATH',
-          pushupTarget: triggerData.pushupTarget || 5,
+          pushupTarget: triggerData.pushupTarget || 10,
           referenceDescriptor: null,
           rampDuration: triggerData.rampDuration || 30,
           preAlarmEnabled: false,
@@ -252,7 +252,7 @@ export function useAlarmScheduler({ alarms, onAlarmTrigger }: UseAlarmSchedulerP
       label: 'Test Wake-Up',
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
       dismissalType: 'PUSHUP_MATH',
-      pushupTarget: 5,
+      pushupTarget: 10,
       referenceDescriptor: null,
       rampDuration: 20,
       preAlarmEnabled: false,

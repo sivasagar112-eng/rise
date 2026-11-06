@@ -205,7 +205,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           label: 'Test Wake-Up',
           daysOfWeek: [],
           dismissalType: 'PUSHUP_MATH',
-          pushupTarget: 5,
+          pushupTarget: 10,
           referenceDescriptor: null,
           rampDuration: 20,
           preAlarmEnabled: false,

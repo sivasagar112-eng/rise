@@ -220,7 +220,7 @@ export class AlarmNotificationService {
     try {
       const taskText =
         alarm.dismissalType === 'PUSHUP_MATH'
-          ? `${alarm.pushupTarget || 5} Pushups`
+          ? '10 Pushups'
           : alarm.dismissalType === 'BRIGHTNESS'
           ? 'Light Check'
           : alarm.dismissalType === 'CLICK_SHAKE' || (alarm.dismissalType as string) === 'FACE_AWAY'
@@ -263,7 +263,7 @@ export class AlarmNotificationService {
           alarmTime: alarm.time,
           alarmLabel: alarm.label || 'Rise Alarm',
           dismissalType: alarm.dismissalType,
-          pushupTarget: alarm.pushupTarget || 5,
+          pushupTarget: alarm.pushupTarget || 10,
           rampDuration: alarm.rampDuration || 30,
         });
       } catch (e) {
@@ -386,7 +386,7 @@ export class AlarmNotificationService {
               alarmTime: alarm.time,
               alarmLabel: alarm.label || 'Rise Alarm',
               dismissalType: alarm.dismissalType,
-              pushupTarget: alarm.pushupTarget || 5,
+              pushupTarget: alarm.pushupTarget || 10,
               rampDuration: alarm.rampDuration || 30,
               daysOfWeek: alarm.daysOfWeek || [],
             });
@@ -681,7 +681,7 @@ export class AlarmNotificationService {
           alarmTime: timeStr,
           alarmLabel: 'Rise Test Alarm',
           dismissalType: 'CLICK_SHAKE',
-          pushupTarget: 5,
+          pushupTarget: 10,
           rampDuration: 10,
           daysOfWeek: [],
         });

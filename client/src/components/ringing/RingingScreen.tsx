@@ -76,6 +76,16 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
 
   const { timeStr, period } = formatTime12h(alarm.time);
 
+  if (effectiveDismissalType === 'OBJECT_MATCH') {
+    return (
+      <ObjectMatchCameraView
+        alarmTime={`${timeStr} ${period}`}
+        alarmLabel={alarm.label || 'Morning Alarm'}
+        onComplete={handleAllTasksDone}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-theme-bg text-theme-text flex flex-col justify-between p-6 animate-fade-in overflow-y-auto">
       {/* Top Banner: Alarm Info & No Snooze Philosophy */}
@@ -109,13 +119,11 @@ export const RingingScreen: React.FC<RingingScreenProps> = ({
         ) : effectiveDismissalType === 'CLICK_SHAKE' ||
           (effectiveDismissalType as string) === 'FACE_AWAY' ? (
           <ClickShakeView onComplete={handleAllTasksDone} />
-        ) : effectiveDismissalType === 'OBJECT_MATCH' ? (
-          <ObjectMatchCameraView onComplete={handleAllTasksDone} />
         ) : effectiveDismissalType === 'MATH' ? (
           <MathChallengeView totalQuestions={3} onComplete={handleAllTasksDone} />
         ) : (
           <PushupCameraView
-            targetReps={alarm.pushupTarget || 5}
+            targetReps={10}
             onComplete={handleAllTasksDone}
           />
         )}

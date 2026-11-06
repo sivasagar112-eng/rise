@@ -170,7 +170,7 @@ public class MainActivity extends BridgeActivity {
         String alarmTime = intent.getStringExtra("alarmTime");
         String alarmLabel = intent.getStringExtra("alarmLabel");
         String dismissalType = intent.getStringExtra("dismissalType");
-        int pushupTarget = intent.getIntExtra("pushupTarget", 5);
+        int pushupTarget = intent.getIntExtra("pushupTarget", 10);
         int rampDuration = intent.getIntExtra("rampDuration", 30);
 
         // Task configuration: recover concrete task from pending data or active alarm prefs if intent extra was RANDOM or missing
@@ -196,8 +196,8 @@ public class MainActivity extends BridgeActivity {
             Log.d(TAG, "handleAlarmIntent: fallback dismissalType resolved to primary pushup task: " + dismissalType);
         }
         if (pushupTarget <= 0) {
-            Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 5");
-            pushupTarget = 5;
+            Log.w(TAG, "handleAlarmIntent: pushupTarget <= 0, defaulting to 10");
+            pushupTarget = 10;
         }
         if (alarmTime == null || alarmTime.trim().isEmpty()) {
             alarmTime = "07:00";

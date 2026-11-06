@@ -197,9 +197,7 @@ export const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onToggle, onEdit, o
                 {task.icon}
                 <span>
                   {task.label}
-                  {alarm.dismissalType === 'PUSHUP_MATH' && alarm.pushupTarget
-                    ? ` ×${alarm.pushupTarget}`
-                    : ''}
+                  {alarm.dismissalType === 'PUSHUP_MATH' ? ' ×10' : ''}
                 </span>
               </div>
             </div>

@@ -221,7 +221,7 @@ class AlarmSchedulerPlugin : Plugin() {
         val alarmTime = call.getString("alarmTime") ?: "07:00"
         val dismissalType = call.getString("dismissalType") ?: "PUSHUP_MATH"
 
-        var pushupTarget = 5
+        var pushupTarget = 10
         if (data != null) {
             val rawTarget = data.opt("pushupTarget")
             if (rawTarget is Number) pushupTarget = rawTarget.toInt()
@@ -397,7 +397,7 @@ class AlarmSchedulerPlugin : Plugin() {
                     put("title", json.optString("alarmLabel"))
                     put("alarmTime", json.optString("alarmTime"))
                     put("dismissalType", json.optString("dismissalType"))
-                    put("pushupTarget", json.optInt("pushupTarget", 5))
+                    put("pushupTarget", json.optInt("pushupTarget", 10))
                     put("rampDuration", json.optInt("rampDuration", 30))
                 }
                 jsArray.put(item)
@@ -498,7 +498,7 @@ class AlarmSchedulerPlugin : Plugin() {
             val alarmTime = call.getString("alarmTime") ?: "07:00"
             val alarmLabel = call.getString("alarmLabel") ?: call.getString("title") ?: "Rise Alarm"
             val dismissalType = call.getString("dismissalType") ?: "PUSHUP_MATH"
-            val pushupTarget = call.getInt("pushupTarget", 5)
+            val pushupTarget = call.getInt("pushupTarget", 10)
             val rampDuration = call.getInt("rampDuration", 30)
 
             val triggerIntent = Intent().apply {

@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ModelPreloader } from '../../services/ModelPreloader';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { Check, RefreshCw, FlipHorizontal, Camera, Sun, Loader2, AlertCircle } from 'lucide-react';
+import { Check, RefreshCw, FlipHorizontal, Camera, Sun, Loader2, AlertCircle, Bell } from 'lucide-react';
 import { synth } from '../../services/WebAudioSynth';
 
 interface ObjectMatchCameraViewProps {
   onComplete: () => void;
+  alarmTime?: string;
+  alarmLabel?: string;
 }
 
 interface TargetItem {
@@ -373,7 +375,11 @@ function analyzeOfflineObjectFrame(
   };
 }
 
-export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({ onComplete }) => {
+export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({
+  onComplete,
+  alarmTime,
+  alarmLabel,
+}) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const completedRef = useRef(false);
@@ -736,207 +742,227 @@ export const ObjectMatchCameraView: React.FC<ObjectMatchCameraViewProps> = ({ on
   }, [isScanning, currentTarget]);
 
   return (
-    <div className="w-full flex flex-col items-center select-none text-center">
-      {/* ── Viewfinder Card (Erly App Visual Framing) ── */}
-      <div className="relative w-full max-w-xs sm:max-w-sm aspect-3/4 bg-neutral-950 rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex items-center justify-center mb-2">
-        {/* Real-time Video Stream */}
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+    <div className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between overflow-hidden select-none">
+      {/* ── 100% Full-Screen Live Video Stream ── */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        autoPlay
+        className="absolute inset-0 w-full h-full object-cover"
+      />
 
-        {/* Subtle camera tint overlay */}
-        <div className="absolute inset-0 bg-black/25 pointer-events-none" />
+      {/* Top and Bottom subtle camera vignette gradients */}
+      <div className="absolute top-0 inset-x-0 h-44 bg-gradient-to-b from-black/85 via-black/45 to-transparent pointer-events-none z-10" />
+      <div className="absolute bottom-0 inset-x-0 h-56 bg-gradient-to-t from-black/90 via-black/55 to-transparent pointer-events-none z-10" />
 
-        {/* ── Top Bar Controls: Change Target & Flip Camera ── */}
-        <div className="absolute top-0 inset-x-0 p-3.5 flex items-center justify-between z-20 pointer-events-none">
-          <button
-            type="button"
-            onClick={handleNextTarget}
-            disabled={isScanning || isVerified}
-            className="pointer-events-auto px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/15 text-white text-[11px] font-semibold backdrop-blur-md flex items-center gap-1.5 transition-all shadow-md"
-          >
-            <RefreshCw size={12} className={isScanning ? 'animate-spin' : ''} />
-            <span>Change Target</span>
-          </button>
+      {/* ── Top Bar Controls: Floating over full-screen camera ── */}
+      <div
+        className="relative z-20 px-5 pt-4 flex items-center justify-between"
+        style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
+      >
+        <button
+          type="button"
+          onClick={handleNextTarget}
+          disabled={isScanning || isVerified}
+          className="px-3.5 py-2 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white text-xs font-bold backdrop-blur-md flex items-center gap-1.5 transition-all shadow-lg"
+        >
+          <RefreshCw size={13} className={isScanning ? 'animate-spin' : ''} />
+          <span>Change Item</span>
+        </button>
 
-          <div className="flex items-center gap-1.5">
-            {isAiLoading && (
-              <span className="pointer-events-none px-2.5 py-1 rounded-full bg-black/60 border border-white/15 text-amber-300 text-[10px] font-semibold backdrop-blur-md flex items-center gap-1">
-                <Loader2 size={10} className="animate-spin" />
-                <span>AI Loading</span>
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={toggleCamera}
-              disabled={isScanning || isVerified}
-              className="pointer-events-auto p-2 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/15 text-white backdrop-blur-md transition-all shadow-md"
-              aria-label="Switch Camera"
-            >
-              <FlipHorizontal size={16} />
-            </button>
+        {/* Minimalist Alarm Wake-Up Banner */}
+        <div className="flex flex-col items-center select-none text-center">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/25 border border-red-500/35 text-red-300 text-[10px] font-black tracking-widest uppercase backdrop-blur-md shadow-md">
+            <Bell size={11} className="animate-bounce" />
+            <span>SCAN TO STOP ALARM</span>
           </div>
+          {alarmTime && (
+            <span className="text-white text-xs font-black tracking-tight mt-0.5 drop-shadow-md">
+              {alarmTime} {alarmLabel ? `• ${alarmLabel}` : ''}
+            </span>
+          )}
         </div>
 
-        {/* ── Central Brackets Reticle (Erly Style) ── */}
+        <div className="flex items-center gap-2">
+          {isAiLoading && (
+            <span className="px-2.5 py-1 rounded-full bg-black/60 border border-white/20 text-amber-300 text-[10px] font-bold backdrop-blur-md flex items-center gap-1 shadow-md">
+              <Loader2 size={11} className="animate-spin" />
+              <span>AI</span>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={toggleCamera}
+            disabled={isScanning || isVerified}
+            className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 active:scale-95 border border-white/20 text-white backdrop-blur-md transition-all shadow-lg"
+            aria-label="Switch Camera"
+          >
+            <FlipHorizontal size={17} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Central Brackets Reticle (Full Screen Framing) ── */}
+      <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-4">
         <div
           onClick={handleManualScan}
-          className={`relative w-60 h-60 flex flex-col items-center justify-center cursor-pointer active:scale-98 transition-all z-10 ${
-            targetInView ? 'scale-102' : ''
+          className={`relative w-64 h-64 sm:w-72 sm:h-72 flex flex-col items-center justify-center cursor-pointer active:scale-98 transition-all ${
+            targetInView ? 'scale-105' : ''
           }`}
         >
           {/* 4 Corner Brackets (Glows Green when target is in view!) */}
           <div
-            className={`absolute top-0 left-0 w-8 h-8 border-t-[3.5px] border-l-[3.5px] rounded-tl-xl drop-shadow-md transition-colors duration-300 ${
-              targetInView ? 'border-emerald-400 shadow-[0_0_12px_#34d399]' : 'border-white'
+            className={`absolute top-0 left-0 w-9 h-9 border-t-[4px] border-l-[4px] rounded-tl-2xl drop-shadow-lg transition-colors duration-300 ${
+              targetInView ? 'border-emerald-400 shadow-[0_0_16px_#34d399]' : 'border-white/90'
             }`}
           />
           <div
-            className={`absolute top-0 right-0 w-8 h-8 border-t-[3.5px] border-r-[3.5px] rounded-tr-xl drop-shadow-md transition-colors duration-300 ${
-              targetInView ? 'border-emerald-400 shadow-[0_0_12px_#34d399]' : 'border-white'
+            className={`absolute top-0 right-0 w-9 h-9 border-t-[4px] border-r-[4px] rounded-tr-2xl drop-shadow-lg transition-colors duration-300 ${
+              targetInView ? 'border-emerald-400 shadow-[0_0_16px_#34d399]' : 'border-white/90'
             }`}
           />
           <div
-            className={`absolute bottom-0 left-0 w-8 h-8 border-b-[3.5px] border-l-[3.5px] rounded-bl-xl drop-shadow-md transition-colors duration-300 ${
-              targetInView ? 'border-emerald-400 shadow-[0_0_12px_#34d399]' : 'border-white'
+            className={`absolute bottom-0 left-0 w-9 h-9 border-b-[4px] border-l-[4px] rounded-bl-2xl drop-shadow-lg transition-colors duration-300 ${
+              targetInView ? 'border-emerald-400 shadow-[0_0_16px_#34d399]' : 'border-white/90'
             }`}
           />
           <div
-            className={`absolute bottom-0 right-0 w-8 h-8 border-b-[3.5px] border-r-[3.5px] rounded-br-xl drop-shadow-md transition-colors duration-300 ${
-              targetInView ? 'border-emerald-400 shadow-[0_0_12px_#34d399]' : 'border-white'
+            className={`absolute bottom-0 right-0 w-9 h-9 border-b-[4px] border-r-[4px] rounded-br-2xl drop-shadow-lg transition-colors duration-300 ${
+              targetInView ? 'border-emerald-400 shadow-[0_0_16px_#34d399]' : 'border-white/90'
             }`}
           />
 
           {/* Laser scanning sweep line */}
           {isScanning && (
-            <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent shadow-[0_0_14px_#60a5fa] animate-laser-sweep pointer-events-none" />
+            <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent shadow-[0_0_16px_#60a5fa] animate-laser-sweep pointer-events-none" />
           )}
 
           {/* 3D Isometric Target Illustration */}
-          <div className="mb-2 transition-transform duration-300 hover:scale-105 pointer-events-none">
+          <div className="mb-2 transition-transform duration-300 hover:scale-110 pointer-events-none drop-shadow-2xl">
             {currentTarget.renderIcon()}
           </div>
 
-          {/* Target Title (Erly Style) */}
-          <h3 className="text-lg font-black text-white tracking-wide drop-shadow-md leading-snug">
+          {/* Target Title */}
+          <h3 className="text-xl font-black text-white tracking-wide drop-shadow-lg leading-tight">
             {currentTarget.name}
           </h3>
 
           {/* Subtitle / Live Detection Match Indicator */}
           {targetInView ? (
-            <div className="flex items-center space-x-1 text-[11px] font-bold text-emerald-400 tracking-wider drop-shadow-sm mt-0.5 animate-pulse">
-              <span>✓ Match in view ({liveScore}%)</span>
+            <div className="flex items-center space-x-1.5 text-xs font-black text-emerald-400 tracking-wider drop-shadow-md mt-1 animate-pulse">
+              <span>✓ MATCH DETECTED ({liveScore}%)</span>
             </div>
           ) : (
-            <div className="flex items-center space-x-1 text-[11px] font-semibold text-white/90 tracking-wider drop-shadow-sm mt-0.5">
-              <Sun size={12} className="text-yellow-400 animate-spin-slow" />
-              <span>Rise</span>
+            <div className="flex items-center space-x-1.5 text-xs font-semibold text-white/80 tracking-wider drop-shadow mt-1">
+              <Sun size={13} className="text-yellow-400 animate-spin-slow" />
+              <span>Scan this object</span>
             </div>
           )}
         </div>
-
-        {/* ── Success Checkmark Overlay ── */}
-        {isVerified && (
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center z-30 animate-fade-in">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-2 shadow-lg shadow-emerald-500/30 animate-bounce">
-              <Check size={36} className="text-emerald-400" strokeWidth={3} />
-            </div>
-            <span className="text-base font-extrabold text-white tracking-wider uppercase">
-              {currentTarget.name} Verified!
-            </span>
-            <span className="text-xs text-emerald-400 font-semibold mt-1">Alarm Dismissed ✓</span>
-          </div>
-        )}
-
-        {/* ── Camera Hardware Error Fallback ── */}
-        {cameraError && (
-          <div className="absolute inset-0 bg-neutral-900/95 flex flex-col items-center justify-center p-6 text-center z-30">
-            <AlertCircle size={32} className="text-red-400 mb-2" />
-            <p className="text-xs text-red-300 mb-3 font-medium">{cameraError}</p>
-            <button
-              type="button"
-              onClick={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
-              className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold active:scale-95 shadow-md"
-            >
-              Retry Camera
-            </button>
-            <button
-              type="button"
-              onClick={onComplete}
-              className="mt-3 text-[11px] text-neutral-400 underline"
-            >
-              Dismiss Alarm
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* ── Status Hint & Detected Labels ── */}
-      <div className="min-h-[22px] max-w-xs px-2 mb-2">
-        {scanMessage ? (
-          <p className="text-xs font-semibold text-amber-300 leading-snug">
-            {scanMessage}
-          </p>
-        ) : targetInView ? (
-          <p className="text-xs font-bold text-emerald-400 leading-snug animate-pulse">
-            Target in view! Hold steady or tap below to scan
-          </p>
-        ) : liveDetectedLabels.length > 0 ? (
-          <p className="text-[11px] font-medium text-neutral-400 leading-snug truncate">
-            In view: {liveDetectedLabels.join(', ')} • Looking for: {currentTarget.name}
-          </p>
-        ) : (
-          <p className="text-xs text-neutral-400 font-medium">
-            Point camera directly at {currentTarget.name}
-          </p>
-        )}
-      </div>
+      {/* ── Bottom Controls ── */}
+      <div
+        className="relative z-20 px-6 flex flex-col items-center"
+        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+      >
+        {/* Status Hint Pill */}
+        <div className="min-h-[38px] max-w-sm px-4 py-2 mb-4 rounded-full bg-black/60 backdrop-blur-md border border-white/15 flex items-center justify-center text-center shadow-lg">
+          {scanMessage ? (
+            <p className="text-xs font-bold text-amber-300 leading-snug animate-pulse">
+              {scanMessage}
+            </p>
+          ) : targetInView ? (
+            <p className="text-xs font-black text-emerald-400 leading-snug animate-pulse">
+              Target in view! Tap shutter below to verify ✓
+            </p>
+          ) : liveDetectedLabels.length > 0 ? (
+            <p className="text-[11px] font-medium text-neutral-300 leading-snug truncate">
+              In view: {liveDetectedLabels.join(', ')} • Aim at {currentTarget.name}
+            </p>
+          ) : (
+            <p className="text-xs text-neutral-200 font-medium">
+              Point camera directly at <span className="font-bold text-white">{currentTarget.name}</span>
+            </p>
+          )}
+        </div>
 
-      {/* ── Prominent Capture / Shutter Button (Like Reference Photo) ── */}
-      <div className="flex items-center justify-center space-x-4">
+        {/* Prominent Native Shutter Button */}
         <button
           type="button"
           onClick={handleManualScan}
           disabled={isScanning || isVerified}
-          className={`relative group p-1 rounded-full border-4 active:scale-90 transition-all cursor-pointer shadow-xl ${
+          className={`p-1.5 rounded-full border-4 active:scale-90 transition-all cursor-pointer shadow-2xl ${
             targetInView
-              ? 'border-emerald-400 shadow-emerald-500/20'
-              : 'border-white/60 shadow-blue-500/10'
+              ? 'border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.4)]'
+              : 'border-white/80 shadow-black/50'
           }`}
           aria-label="Scan Object"
         >
           <div
-            className={`w-16 h-16 rounded-full flex items-center justify-center shadow-inner transition-colors ${
+            className={`w-18 h-18 rounded-full flex items-center justify-center shadow-inner transition-colors ${
               targetInView
-                ? 'bg-emerald-400 group-hover:bg-emerald-300'
-                : 'bg-white group-hover:bg-blue-50'
+                ? 'bg-emerald-400'
+                : 'bg-white'
             }`}
           >
             <Camera
-              size={26}
+              size={28}
               className={targetInView ? 'text-black' : 'text-neutral-900'}
             />
           </div>
         </button>
+
+        <span className="text-[11px] text-white/80 tracking-wider uppercase font-black mt-2 drop-shadow">
+          {targetInView ? 'Tap to Confirm' : 'Tap to Scan & Verify'}
+        </span>
+
+        {/* Emergency skip button if user struggles repeatedly in dark/unfavorable room conditions */}
+        {failedAttempts >= 3 && !isVerified && (
+          <button
+            type="button"
+            onClick={onComplete}
+            className="mt-3 px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-[11px] text-neutral-300 hover:text-white backdrop-blur-md transition-all shadow-md"
+          >
+            Having trouble? Tap to skip &amp; dismiss
+          </button>
+        )}
       </div>
 
-      <span className="text-[10px] text-neutral-500 tracking-wider uppercase font-bold mt-2">
-        {targetInView ? 'Tap to Confirm' : 'Tap to Scan & Verify'}
-      </span>
+      {/* ── Success Checkmark Overlay (Full Screen) ── */}
+      {isVerified && (
+        <div className="absolute inset-0 bg-black/85 backdrop-blur-lg flex flex-col items-center justify-center z-40 animate-fade-in">
+          <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-3 shadow-xl shadow-emerald-500/30 animate-bounce">
+            <Check size={44} className="text-emerald-400" strokeWidth={3.5} />
+          </div>
+          <span className="text-xl font-black text-white tracking-wider uppercase">
+            {currentTarget.name} Verified!
+          </span>
+          <span className="text-sm text-emerald-400 font-bold mt-1">Alarm Dismissed ✓</span>
+        </div>
+      )}
 
-      {/* Emergency skip button if user struggles repeatedly in dark/unfavorable room conditions */}
-      {failedAttempts >= 3 && !isVerified && (
-        <button
-          type="button"
-          onClick={onComplete}
-          className="mt-3 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] text-neutral-400 hover:text-white transition-colors"
-        >
-          Having trouble in low light? Tap to skip &amp; dismiss
-        </button>
+      {/* ── Camera Hardware Error Fallback (Full Screen) ── */}
+      {cameraError && (
+        <div className="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center p-6 text-center z-40">
+          <AlertCircle size={40} className="text-red-400 mb-3" />
+          <p className="text-sm text-red-300 mb-4 font-semibold max-w-xs">{cameraError}</p>
+          <button
+            type="button"
+            onClick={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold active:scale-95 shadow-lg"
+          >
+            Retry Camera
+          </button>
+          <button
+            type="button"
+            onClick={onComplete}
+            className="mt-4 text-xs text-neutral-400 underline"
+          >
+            Dismiss Alarm
+          </button>
+        </div>
       )}
     </div>
   );
