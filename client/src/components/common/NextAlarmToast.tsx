@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock, Sparkles } from 'lucide-react';
 import { Haptics } from '../../services/HapticFeedback';
 
 export interface ToastMessage {
@@ -71,7 +71,11 @@ export const NextAlarmToast: React.FC<NextAlarmToastProps> = ({ toast, onDismiss
         }}
       >
         <div className="w-6 h-6 rounded-full bg-blue-500/15 flex items-center justify-center shrink-0 border border-blue-500/25">
-          <Clock size={12} className="text-blue-500" strokeWidth={2.6} />
+          {toast?.icon === 'info' ? (
+            <Sparkles size={12} className="text-blue-500" strokeWidth={2.6} />
+          ) : (
+            <Clock size={12} className="text-blue-500" strokeWidth={2.6} />
+          )}
         </div>
         <span className="text-xs font-bold tracking-tight text-theme-text whitespace-nowrap">
           {toast?.text}
